@@ -1,0 +1,30 @@
+{
+  "name": "remote-bridge-cli",
+  "version": "0.1.0",
+  "description": "Bridge the gap between AI-generated code and remote servers",
+  "bin": {
+    "remote-bridge": "./bin/remote-bridge"
+  },
+  "scripts": {
+    "postinstall": "cargo build --release && mkdir -p bin && cp target/release/remote-bridge ./bin/remote-bridge",
+    "test": "cargo test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/varaprasadreddy9676/remote-bridge.git"
+  },
+  "keywords": [
+    "ai",
+    "ssh",
+    "rsync",
+    "mcp",
+    "deployment",
+    "remote"
+  ],
+  "author": "Vara Prasad Reddy",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/varaprasadreddy9676/remote-bridge/issues"
+  },
+  "homepage": "https://github.com/varaprasadreddy9676/remote-bridge#readme"
+}

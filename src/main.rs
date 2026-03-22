@@ -46,6 +46,8 @@ enum Commands {
         #[arg(short, long, default_value = "staging")]
         target: String,
     },
+    /// Starts the MCP (Model Context Protocol) server
+    Mcp,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -114,6 +116,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Found {} shell commands.", shell_commands.len());
                 executor.run_commands(&shell_commands)?;
             }
+        }
+        Commands::Mcp => {
+            remote_bridge::mcp::run_mcp_server()?;
         }
     }
 

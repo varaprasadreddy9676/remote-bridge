@@ -550,6 +550,7 @@ dependencies = [
  "indicatif",
  "regex",
  "serde",
+ "serde_json",
  "serde_yaml",
  "ssh2",
  "tempfile",

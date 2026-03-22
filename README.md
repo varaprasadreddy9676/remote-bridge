@@ -28,6 +28,13 @@ RemoteBridge is a high-performance CLI tool written in Rust, designed to act as 
 - **Rust:** Install via [rustup.rs](https://rustup.rs/).
 - **System Tools:** `rsync` and `ssh` must be available in your PATH.
 
+### Install via NPM (Recommended)
+You can now install RemoteBridge globally via NPM:
+```bash
+npm install -g remote-bridge-cli
+```
+*Note: This will trigger a local `cargo build` to ensure the binary is optimized for your architecture.*
+
 ### Build from Source
 ```bash
 git clone https://github.com/your-repo/remote-bridge.git
@@ -58,6 +65,29 @@ targets:
       - "/var/log/nginx/error.log"
     require_confirmation: false
 ```
+
+---
+
+## 🔌 Model Context Protocol (MCP) Support
+
+RemoteBridge is a native MCP server! This means modern AI IDEs (like Claude Desktop) can use it as a "Tool" directly without manual piping.
+
+### How to use with Claude Desktop
+Add this to your `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "remote-bridge": {
+      "command": "remote-bridge",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Once configured, the AI can:
+- **`sync_to_remote`**: Automatically push code after it finishes writing.
+- **`run_remote_command`**: Execute tests or restarts on your server.
 
 ---
 

@@ -43,7 +43,10 @@ Your AI calls the right tool, syncs the right files, runs the right commands —
 | **`--dry-run`** | Preview exactly what rsync would transfer before touching anything |
 | **Watch Mode** | Polls local files and auto-syncs on any change — live deploy loop |
 | **Full Deploy Pipeline** | One command: sync → restart → tail logs on failure |
-| **Permission Gate** | Pauses for confirmation on `sudo`, `rm`, or database commands |
+| **Permission Gate** | Pauses for confirmation on `sudo`, `rm`, database commands, and 20+ dangerous patterns |
+| **Hard Block** | User-defined `blocked_patterns` are always rejected — no AI override possible |
+| **Allowlist** | `allowed_commands` lets you restrict exactly which commands can ever run |
+| **Audit Log** | Every command logged with exit code to `~/.remote-bridge-audit.log` |
 | **Pre-flight Check** | Detects remote OS, Node.js, Python, Rust, Docker versions |
 | **Log Backfeed** | Auto-tails remote logs when a command fails — AI reads and fixes |
 | **MCP Server** | Native Model Context Protocol server for Claude Desktop & other AI IDEs |
@@ -117,6 +120,13 @@ targets:
     exclude:                           # extra rsync exclusions beyond .gitignore
       - "node_modules/"
       - "*.log"
+    blocked_patterns:                  # always rejected — no AI override
+      - "rm -rf"
+      - "drop table"
+    allowed_commands:                  # when set, only these prefixes can run
+      - "npm"
+      - "pm2"
+    audit_log: "~/.remote-bridge-staging.log"  # default: ~/.remote-bridge-audit.log
   production:
     host: "prod.example.com"
     user: "ubuntu"
@@ -438,11 +448,54 @@ RemoteBridge uses your existing SSH key authentication — no passwords stored.
 
 ## 🛡 Safety Features
 
-- **Permission Gate:** Prompts before any command containing `sudo`, `rm`, `drop`, `delete`, or `database`
-- **`require_confirmation: true`** in config forces confirmation for every command
-- **`--dry-run`** on sync shows a diff without touching files
+RemoteBridge has layered defenses so a hallucinating AI can never destroy your server.
+
+### Confirmation Gate (built-in)
+Commands containing `sudo`, `rm`, `drop`, `delete`, `database`, `shutdown`, `reboot`, `killall`, `curl | bash`, `wget | sh`, and 20+ other dangerous patterns **always pause for confirmation** before running on the remote host.
+
+### Hard Block (user-defined)
+Patterns you add to `blocked_patterns` are **always rejected — no confirmation, no override**:
+```yaml
+targets:
+  staging:
+    blocked_patterns:
+      - "rm -rf"
+      - "drop table"
+      - "truncate"
+```
+
+### Allowlist (user-defined)
+When `allowed_commands` is set, **only commands matching those prefixes can run**. Anything else is silently blocked:
+```yaml
+targets:
+  production:
+    allowed_commands:
+      - "npm"
+      - "pm2"
+      - "systemctl restart myapp"
+```
+
+### Audit Log
+Every command execution is logged automatically to `~/.remote-bridge-audit.log` (or a custom path):
+```
+[1742660591] host=your-server.com path=/var/www/app exit=0 cmd=npm install
+[1742660612] host=your-server.com path=/var/www/app exit=-2 cmd=rm -rf /var/data
+```
+Exit codes: `0+` = actual exit code, `-1` = skipped by user, `-2` = hard blocked, `-3` = not in allowlist.
+
+Custom path:
+```yaml
+targets:
+  staging:
+    audit_log: "/var/log/remote-bridge-staging.log"
+```
+
+### Other Protections
+- **`require_confirmation: true`** — confirm every command, no exceptions
+- **`--dry-run`** on sync — preview rsync diff without touching anything
 - **No password storage** — SSH key auth only
 - **No secrets in config** — host/user/path only
+- **MCP output truncation** — `run_remote_command` returns at most 100 lines by default, preventing log floods from filling AI context
 
 ---
 

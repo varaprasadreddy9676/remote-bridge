@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Bridge the gap between AI-generated code and remote servers",
   "bin": {
-    "remote-bridge": "./bin/remote-bridge"
+    "remote-bridge": "./bin/remote-bridge.js"
   },
   "scripts": {
     "postinstall": "node scripts/install.js",
@@ -13,7 +13,7 @@
   "files": [
     "bin/",
     "scripts/",
-    "src/",
+    "src/*.rs",
     "Cargo.toml",
     "Cargo.lock",
     "README.md"

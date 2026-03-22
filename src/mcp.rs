@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
-use crate::config::load_config;
+use crate::config::{find_config, load_config};
 use crate::executor::Executor;
 
 #[derive(Debug, Deserialize)]
@@ -215,7 +215,7 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn handle_sync(target: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let config = load_config("remotebridge.yaml")?;
+    let config = load_config(find_config()?)?;
     let target_cfg = config.targets.get(target).ok_or(format!("Target {} not found", target))?;
     let executor = Executor::new(target_cfg.clone());
     executor.get_transport().sync_files(".", vec![".git/".to_string()], false)?;
@@ -223,7 +223,7 @@ fn handle_sync(target: &str) -> Result<String, Box<dyn std::error::Error>> {
 }
 
 fn handle_restart(target: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let config = load_config("remotebridge.yaml")?;
+    let config = load_config(find_config()?)?;
     let target_cfg = config.targets.get(target).ok_or(format!("Target {} not found", target))?;
     let executor = Executor::new(target_cfg.clone());
     executor.restart()?;
@@ -231,7 +231,7 @@ fn handle_restart(target: &str) -> Result<String, Box<dyn std::error::Error>> {
 }
 
 fn handle_deploy(target: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let config = load_config("remotebridge.yaml")?;
+    let config = load_config(find_config()?)?;
     let target_cfg = config.targets.get(target).ok_or(format!("Target {} not found", target))?;
     let executor = Executor::new(target_cfg.clone());
     executor.deploy(false)?;
@@ -239,7 +239,7 @@ fn handle_deploy(target: &str) -> Result<String, Box<dyn std::error::Error>> {
 }
 
 fn handle_run(target: &str, command: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let config = load_config("remotebridge.yaml")?;
+    let config = load_config(find_config()?)?;
     let target_cfg = config.targets.get(target).ok_or(format!("Target {} not found", target))?;
     let executor = Executor::new(target_cfg.clone());
     let (code, stdout, stderr) = executor.get_transport().run_remote_command(command)?;
@@ -247,7 +247,7 @@ fn handle_run(target: &str, command: &str) -> Result<String, Box<dyn std::error:
 }
 
 fn handle_preflight(target: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let config = load_config("remotebridge.yaml")?;
+    let config = load_config(find_config()?)?;
     let target_cfg = config.targets.get(target).ok_or(format!("Target {} not found", target))?;
     let executor = Executor::new(target_cfg.clone());
     let transport = executor.get_transport();
@@ -277,7 +277,7 @@ fn handle_preflight(target: &str) -> Result<String, Box<dyn std::error::Error>> 
 }
 
 fn handle_fetch_logs(target: &str, lines: usize) -> Result<String, Box<dyn std::error::Error>> {
-    let config = load_config("remotebridge.yaml")?;
+    let config = load_config(find_config()?)?;
     let target_cfg = config.targets.get(target).ok_or(format!("Target {} not found", target))?;
     let executor = Executor::new(target_cfg.clone());
     executor.get_transport().fetch_logs(lines)

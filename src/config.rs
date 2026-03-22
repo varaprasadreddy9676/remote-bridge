@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TargetConfig {
@@ -33,6 +33,54 @@ pub fn load_config<P: AsRef<Path>>(path: P) -> Result<RemoteBridgeConfig, Box<dy
     let content = fs::read_to_string(path)?;
     let config: RemoteBridgeConfig = serde_yaml::from_str(&content)?;
     Ok(config)
+}
+
+/// Finds `remotebridge.yaml` by searching in this order:
+///   1. `REMOTEBRIDGE_CONFIG` environment variable (explicit path)
+///   2. Walk up from the current directory (like git finds `.git`)
+///   3. `~/.remotebridge.yaml` (global user default)
+///
+/// Returns the path found, or an error with a helpful message.
+pub fn find_config() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // 1. Explicit env var override
+    if let Ok(path) = std::env::var("REMOTEBRIDGE_CONFIG") {
+        let p = PathBuf::from(&path);
+        if p.exists() {
+            return Ok(p);
+        }
+        return Err(format!(
+            "REMOTEBRIDGE_CONFIG is set to '{}' but the file does not exist.",
+            path
+        ).into());
+    }
+
+    // 2. Walk up from cwd
+    let mut dir = std::env::current_dir()?;
+    loop {
+        let candidate = dir.join("remotebridge.yaml");
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+
+    // 3. ~/.remotebridge.yaml
+    if let Some(home) = dirs_next::home_dir() {
+        let global = home.join(".remotebridge.yaml");
+        if global.exists() {
+            return Ok(global);
+        }
+    }
+
+    Err(
+        "No remotebridge.yaml found.\n\
+         Run this in your project directory to create one:\n\
+         \n  remote-bridge init --name my-app -H your-server.com --user ubuntu --path /var/www/app\n\
+         \nOr set REMOTEBRIDGE_CONFIG=/path/to/remotebridge.yaml to point to a specific file."
+        .into(),
+    )
 }
 
 pub fn create_default_config<P: AsRef<Path>>(path: P, name: &str, host: &str, user: &str, remote_path: &str) -> Result<(), Box<dyn std::error::Error>> {

@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use remote_bridge::config::{load_config, create_default_config};
+use remote_bridge::config::{find_config, load_config, create_default_config};
 use remote_bridge::executor::Executor;
 use remote_bridge::parser::{parse_markdown, ShellCommand};
 use remote_bridge::watcher::watch_and_sync;
@@ -106,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Sync { target, dry_run } => {
-            let config = load_config("remotebridge.yaml")?;
+            let config = load_config(find_config()?)?;
             let target_cfg = config.targets.get(&target)
                 .ok_or(format!("Target '{}' not found in remotebridge.yaml", target))?;
             let executor = Executor::new(target_cfg.clone());
@@ -118,7 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Run { command_str, target } => {
-            let config = load_config("remotebridge.yaml")?;
+            let config = load_config(find_config()?)?;
             let target_cfg = config.targets.get(&target)
                 .ok_or(format!("Target '{}' not found in remotebridge.yaml", target))?;
             let executor = Executor::new(target_cfg.clone());
@@ -129,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Preflight { target } => {
-            let config = load_config("remotebridge.yaml")?;
+            let config = load_config(find_config()?)?;
             let target_cfg = config.targets.get(&target)
                 .ok_or(format!("Target '{}' not found in remotebridge.yaml", target))?;
             let executor = Executor::new(target_cfg.clone());
@@ -156,7 +156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Logs { target, lines, follow } => {
-            let config = load_config("remotebridge.yaml")?;
+            let config = load_config(find_config()?)?;
             let target_cfg = config.targets.get(&target)
                 .ok_or(format!("Target '{}' not found in remotebridge.yaml", target))?;
             let executor = Executor::new(target_cfg.clone());
@@ -164,7 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Restart { target } => {
-            let config = load_config("remotebridge.yaml")?;
+            let config = load_config(find_config()?)?;
             let target_cfg = config.targets.get(&target)
                 .ok_or(format!("Target '{}' not found in remotebridge.yaml", target))?;
             let executor = Executor::new(target_cfg.clone());
@@ -172,7 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Deploy { target, follow } => {
-            let config = load_config("remotebridge.yaml")?;
+            let config = load_config(find_config()?)?;
             let target_cfg = config.targets.get(&target)
                 .ok_or(format!("Target '{}' not found in remotebridge.yaml", target))?;
             let executor = Executor::new(target_cfg.clone());
@@ -180,7 +180,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Watch { target, interval } => {
-            let config = load_config("remotebridge.yaml")?;
+            let config = load_config(find_config()?)?;
             let target_cfg = config.targets.get(&target)
                 .ok_or(format!("Target '{}' not found in remotebridge.yaml", target))?;
             let executor = Executor::new(target_cfg.clone());
@@ -209,7 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
 
-            let config = load_config("remotebridge.yaml")?;
+            let config = load_config(find_config()?)?;
             let target_cfg = config.targets.get(&target)
                 .ok_or(format!("Target '{}' not found in remotebridge.yaml", target))?;
             let executor = Executor::new(target_cfg.clone());

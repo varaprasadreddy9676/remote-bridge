@@ -165,23 +165,9 @@ remote-bridge deploy --target staging --follow
 
 ---
 
-## 🔌 Model Context Protocol (MCP) Support
+## 🔌 MCP Support — Works With Every AI IDE
 
-RemoteBridge is a native MCP server. AI IDEs like Claude Desktop can use it as a tool directly — no manual piping required.
-
-### Claude Desktop Configuration
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "remote-bridge": {
-      "command": "remote-bridge",
-      "args": ["mcp"]
-    }
-  }
-}
-```
+RemoteBridge is a native **Model Context Protocol (MCP)** server. Any MCP-compatible AI IDE can use it as a tool directly — no piping required. The config is almost identical across all tools.
 
 ### Available MCP Tools
 
@@ -194,11 +180,159 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `restart_service` | Restart the configured remote service |
 | `deploy` | Full sync + restart + log-tail pipeline |
 
-Once configured, Claude can:
+---
+
+### Claude Desktop
+
+File: `~/Library/Application Support/Claude/claude_desktop_config.json`
+```json
+{
+  "mcpServers": {
+    "remote-bridge": {
+      "command": "remote-bridge",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
-"Push my latest changes and restart the app"
-→ calls sync_to_remote then restart_service automatically
+
+---
+
+### Cursor
+
+File: `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (per-project)
+```json
+{
+  "mcpServers": {
+    "remote-bridge": {
+      "command": "remote-bridge",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
+Or go to **Cursor Settings → MCP → Add Server**.
+
+---
+
+### VS Code (GitHub Copilot / Continue / Cline)
+
+File: `.vscode/mcp.json` in your project root
+```json
+{
+  "servers": {
+    "remote-bridge": {
+      "type": "stdio",
+      "command": "remote-bridge",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+For the **Cline** extension, add via the Cline sidebar → MCP Servers → Configure.
+
+---
+
+### Windsurf (Codeium)
+
+File: `~/.codeium/windsurf/mcp_config.json`
+```json
+{
+  "mcpServers": {
+    "remote-bridge": {
+      "command": "remote-bridge",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+Or go to **Windsurf Settings → Cascade → MCP Servers → Add**.
+
+---
+
+### Zed
+
+File: `~/.config/zed/settings.json`
+```json
+{
+  "context_servers": {
+    "remote-bridge": {
+      "command": {
+        "path": "remote-bridge",
+        "args": ["mcp"]
+      }
+    }
+  }
+}
+```
+
+---
+
+### OpenAI Codex CLI
+
+File: `~/.codex/config.json`
+```json
+{
+  "mcpServers": {
+    "remote-bridge": {
+      "command": "remote-bridge",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+Or pass inline: `codex --mcp-server "remote-bridge mcp" "Deploy my changes"`
+
+---
+
+### Continue.dev
+
+File: `~/.continue/config.json`
+```json
+{
+  "mcpServers": [
+    {
+      "name": "remote-bridge",
+      "command": "remote-bridge",
+      "args": ["mcp"]
+    }
+  ]
+}
+```
+
+---
+
+### Claude Code (CLI)
+
+File: `.claude/mcp.json` in your project, or `~/.claude/mcp.json` globally
+```json
+{
+  "mcpServers": {
+    "remote-bridge": {
+      "command": "remote-bridge",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+Or add via CLI: `claude mcp add remote-bridge -- remote-bridge mcp`
+
+---
+
+### Any MCP-compatible tool
+
+The pattern is always the same — `stdio` transport, command `remote-bridge`, arg `mcp`:
+```json
+{
+  "command": "remote-bridge",
+  "args": ["mcp"],
+  "transport": "stdio"
+}
+```
+
+Once configured, your AI can say things like:
+> *"Push my latest changes and restart the app"*
+> → automatically calls `sync_to_remote` then `restart_service`
 
 ---
 

@@ -1,19 +1,13 @@
-project_name: remote-bridge-test
+project_name: my-app
 targets:
   staging:
-    host: 192.168.1.251
-    user: sankara
-    remote_path: /tmp/remote-bridge-test
-    restart_cmd: "echo 'service restarted'"
+    host: your-server.com
+    user: ubuntu
+    remote_path: /var/www/app
+    restart_cmd: "pm2 restart app"
     logs:
-      - /tmp/remote-bridge-test/logs/app.log
+      - /var/www/app/logs/error.log
     require_confirmation: false
     exclude:
       - target/
       - node_modules/
-      - bin/remote-bridge
-      - mcp-publisher
-      - mcp-publisher.tar.gz
-      - .mcpregistry_github_token
-      - .mcpregistry_registry_token
-      - src/main.rs_apply_fix

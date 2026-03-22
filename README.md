@@ -13,7 +13,7 @@ Once installed, you don't run commands manually. You just tell your AI what you 
 ```
 You:  "Sync my project files to the staging server"
 You:  "Run npm install on the remote server"
-You:  "Deploy my latest changes to sankara@192.168.1.251"
+You:  "Deploy my latest changes to ubuntu@your-server.com"
 You:  "Check what OS and runtimes are installed on the server"
 You:  "Tail the remote logs and show me what's failing"
 You:  "Something broke after deploy — fetch the logs and fix it"
@@ -381,7 +381,7 @@ Once configured, you just talk to your AI naturally inside Claude Code, Cursor, 
 **You:** *"Run npm install on the remote server"*
 > RemoteBridge calls `run_remote_command` with `npm install` → streams output back
 
-**You:** *"Deploy my latest changes to sankara@192.168.1.251"*
+**You:** *"Deploy my latest changes to ubuntu@your-server.com"*
 > RemoteBridge calls `deploy` → syncs files, restarts service, tails logs if it fails
 
 **You:** *"Check what OS and runtimes are installed on the server"*

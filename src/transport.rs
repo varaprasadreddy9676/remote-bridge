@@ -32,7 +32,7 @@ impl Transport {
         if self.target.port.is_none() && self.target.ssh_key.is_none() {
             return None;
         }
-        let mut parts = vec!["ssh".to_string()];
+        let mut parts = vec!["ssh".to_string(), "-o".to_string(), "LogLevel=ERROR".to_string()];
         if let Some(port) = self.target.port {
             parts.push("-p".to_string());
             parts.push(port.to_string());
@@ -148,6 +148,7 @@ impl Transport {
 
         let mut cmd = Command::new("ssh");
         cmd.arg("-o").arg("BatchMode=no");
+        cmd.arg("-o").arg("LogLevel=ERROR");
         cmd.args(self.ssh_extra_args());
         cmd.arg(remote_target).arg(remote_cmd);
 
@@ -204,6 +205,7 @@ impl Transport {
 
         let mut cmd = Command::new("ssh");
         cmd.arg("-o").arg("BatchMode=no");
+        cmd.arg("-o").arg("LogLevel=ERROR");
         cmd.args(self.ssh_extra_args());
         cmd.arg(remote_target).arg(remote_cmd);
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -288,13 +290,13 @@ mod tests {
     #[test]
     fn test_rsync_ssh_transport_with_port() {
         let t = make_transport(Some(2222), None);
-        assert_eq!(t.rsync_ssh_transport().unwrap(), "ssh -p 2222");
+        assert_eq!(t.rsync_ssh_transport().unwrap(), "ssh -o LogLevel=ERROR -p 2222");
     }
 
     #[test]
     fn test_rsync_ssh_transport_with_key() {
         let t = make_transport(None, Some("/keys/prod.pem".to_string()));
-        assert_eq!(t.rsync_ssh_transport().unwrap(), "ssh -i /keys/prod.pem");
+        assert_eq!(t.rsync_ssh_transport().unwrap(), "ssh -o LogLevel=ERROR -i /keys/prod.pem");
     }
 
     #[test]
@@ -302,7 +304,7 @@ mod tests {
         let t = make_transport(Some(22), Some("/keys/prod.pem".to_string()));
         assert_eq!(
             t.rsync_ssh_transport().unwrap(),
-            "ssh -p 22 -i /keys/prod.pem"
+            "ssh -o LogLevel=ERROR -p 22 -i /keys/prod.pem"
         );
     }
 
@@ -340,7 +342,7 @@ mod tests {
         let args = t.build_rsync_args(".", &[], false);
         assert!(args.contains(&"-e".to_string()));
         let e_pos = args.iter().position(|a| a == "-e").unwrap();
-        assert_eq!(args[e_pos + 1], "ssh -p 2222");
+        assert_eq!(args[e_pos + 1], "ssh -o LogLevel=ERROR -p 2222");
     }
 
     #[test]

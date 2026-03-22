@@ -1,1 +1,7 @@
 /target
+/bin/remote-bridge
+mcp-publisher
+mcp-publisher.tar.gz
+*.mcpregistry_*
+.mcpregistry_*
+src/main.rs_apply_fix

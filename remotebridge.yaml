@@ -1,0 +1,10 @@
+project_name: my-app
+targets:
+  staging:
+    host: localhost
+    user: sai
+    remote_path: /tmp/remote-bridge-test
+    restart_cmd: null
+    logs:
+    - /tmp/remote-bridge-test/logs/error.log
+    require_confirmation: false

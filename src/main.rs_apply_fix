@@ -1,0 +1,30 @@
+        Commands::Apply { target } => {
+            let mut buffer = String::new();
+            io::stdin().read_to_string(&mut buffer)?;
+            
+            if buffer.is_empty() {
+                println!("No input received.");
+                return Ok(());
+            }
+
+            let (file_changes, shell_commands) = parse_markdown(&buffer);
+            
+            if file_changes.is_empty() && shell_commands.is_empty() {
+                println!("No file changes or shell commands found.");
+                return Ok(());
+            }
+
+            let config = load_config("remotebridge.yaml")?;
+            let target_cfg = config.targets.get(&target).ok_or(format!("Target {} not found", target))?;
+            let executor = Executor::new(target_cfg.clone());
+            
+            if !file_changes.is_empty() {
+                println!("Found {} file changes.", file_changes.len());
+                executor.apply_file_changes(&file_changes)?;
+            }
+            
+            if !shell_commands.is_empty() {
+                println!("Found {} shell commands.", shell_commands.len());
+                executor.run_commands(&shell_commands)?;
+            }
+        }

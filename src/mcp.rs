@@ -78,7 +78,7 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                             },
                             {
                                 "name": "run_remote_command",
-                                "description": "Executes a shell command on the remote server and returns stdout/stderr",
+                                "description": "Executes a shell command on the remote server and returns stdout/stderr. Output is truncated to max_lines (default 100) to avoid filling context.",
                                 "inputSchema": {
                                     "type": "object",
                                     "properties": {
@@ -89,6 +89,10 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                                         "target": {
                                             "type": "string",
                                             "description": "Target name from remotebridge.yaml (default: staging)"
+                                        },
+                                        "max_lines": {
+                                            "type": "integer",
+                                            "description": "Maximum number of output lines to return (default: 100, use 0 for unlimited)"
                                         }
                                     },
                                     "required": ["command"]
@@ -166,10 +170,11 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                         "sync_to_remote" => handle_sync(target),
                         "run_remote_command" => {
                             let cmd = tool_args["command"].as_str().unwrap_or("");
+                            let max_lines = tool_args["max_lines"].as_u64().unwrap_or(100) as usize;
                             if cmd.is_empty() {
                                 Err("Missing required argument: command".into())
                             } else {
-                                handle_run(target, cmd)
+                                handle_run(target, cmd, max_lines)
                             }
                         }
                         "preflight_check" => handle_preflight(target),
@@ -238,12 +243,26 @@ fn handle_deploy(target: &str) -> Result<String, Box<dyn std::error::Error>> {
     Ok("Deploy complete.".to_string())
 }
 
-fn handle_run(target: &str, command: &str) -> Result<String, Box<dyn std::error::Error>> {
+fn handle_run(target: &str, command: &str, max_lines: usize) -> Result<String, Box<dyn std::error::Error>> {
     let config = load_config(find_config()?)?;
     let target_cfg = config.targets.get(target).ok_or(format!("Target {} not found", target))?;
     let executor = Executor::new(target_cfg.clone());
     let (code, stdout, stderr) = executor.get_transport().run_remote_command(command)?;
-    Ok(format!("Exit Code: {}\nSTDOUT: {}\nSTDERR: {}", code, stdout, stderr))
+
+    let stdout_trimmed = if max_lines > 0 {
+        let lines: Vec<&str> = stdout.lines().collect();
+        let total = lines.len();
+        if total > max_lines {
+            let kept = &lines[total - max_lines..];
+            format!("[...truncated, showing last {} of {} lines]\n{}", max_lines, total, kept.join("\n"))
+        } else {
+            stdout.clone()
+        }
+    } else {
+        stdout.clone()
+    };
+
+    Ok(format!("Exit Code: {}\nSTDOUT: {}\nSTDERR: {}", code, stdout_trimmed, stderr))
 }
 
 fn handle_preflight(target: &str) -> Result<String, Box<dyn std::error::Error>> {

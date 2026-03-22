@@ -3,6 +3,7 @@ use crate::parser::{FileChange, ShellCommand};
 use crate::transport::Transport;
 use dialoguer::Confirm;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 pub struct Executor {
@@ -44,6 +45,20 @@ impl Executor {
         }
 
         for cmd in commands {
+            // Hard block — user-defined patterns, no override
+            if self.is_blocked(&cmd.command) {
+                println!("BLOCKED: '{}' matches a blocked pattern and will not run.", cmd.command);
+                self.audit(&cmd.command, -2);
+                continue;
+            }
+
+            // Allowlist — when set, only matching prefixes are permitted
+            if !self.is_allowed(&cmd.command) {
+                println!("NOT ALLOWED: '{}' is not in allowed_commands.", cmd.command);
+                self.audit(&cmd.command, -3);
+                continue;
+            }
+
             if self.should_confirm(&cmd.command) {
                 if !Confirm::new()
                     .with_prompt(format!(
@@ -53,11 +68,13 @@ impl Executor {
                     .interact()?
                 {
                     println!("Skipping command: {}", cmd.command);
+                    self.audit(&cmd.command, -1);
                     continue;
                 }
             }
 
             let (exit_code, stdout, stderr) = self.transport.run_remote_command(&cmd.command)?;
+            self.audit(&cmd.command, exit_code);
 
             if !stdout.is_empty() {
                 println!("STDOUT:\n{}", stdout);
@@ -140,10 +157,80 @@ impl Executor {
         Ok(())
     }
 
+    /// Returns true if the command must be confirmed before running.
     pub fn should_confirm(&self, command: &str) -> bool {
-        let dangerous = ["rm ", "sudo ", "db ", "database", "drop ", "delete "];
-        let cmd_lower = command.to_lowercase();
-        dangerous.iter().any(|&k| cmd_lower.contains(k)) || self.target.require_confirmation
+        if self.target.require_confirmation {
+            return true;
+        }
+        let cmd = command.to_lowercase();
+        // Built-in dangerous patterns — expanded to catch common destructive commands
+        let dangerous = [
+            "rm ",   "rm\t",                 // file deletion
+            "sudo ", "sudo\t",               // privilege escalation
+            "db ",   "database",             // database operations
+            "drop ", "delete ",              // data destruction
+            "mkfs",  "dd ",                  // disk operations
+            "chmod 777", "chmod -r",         // permission changes
+            "curl | ", "curl |",             // piped remote execution
+            "wget | ", "wget |",
+            "| bash", "| sh",
+            "| python", "| node",
+            "> /dev/", "truncate",           // device/file overwrite
+            "shutdown", "reboot", "halt",    // system control
+            "killall", "pkill",              // process killing
+            "passwd", "chpasswd",            // password changes
+            ":(){",                          // fork bomb
+            "format ",                       // formatting
+        ];
+        dangerous.iter().any(|&k| cmd.contains(k))
+    }
+
+    /// Returns true if the command matches a user-defined blocked pattern.
+    /// Blocked commands are ALWAYS rejected — no confirmation prompt, no override.
+    pub fn is_blocked(&self, command: &str) -> bool {
+        if self.target.blocked_patterns.is_empty() {
+            return false;
+        }
+        let cmd = command.to_lowercase();
+        self.target.blocked_patterns.iter().any(|pat| cmd.contains(&pat.to_lowercase()))
+    }
+
+    /// Returns true if the command is permitted by the allowlist.
+    /// When `allowed_commands` is empty, all commands are permitted (subject to other checks).
+    /// When set, ONLY commands that start with an entry in the list are permitted.
+    pub fn is_allowed(&self, command: &str) -> bool {
+        if self.target.allowed_commands.is_empty() {
+            return true;
+        }
+        let cmd = command.trim().to_lowercase();
+        self.target.allowed_commands.iter().any(|allowed| {
+            cmd.starts_with(&allowed.to_lowercase())
+        })
+    }
+
+    /// Appends an audit log entry for every executed command.
+    fn audit(&self, command: &str, exit_code: i32) {
+        let log_path = self.target.audit_log.clone().unwrap_or_else(|| {
+            dirs_next::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join(".remote-bridge-audit.log")
+                .to_string_lossy()
+                .to_string()
+        });
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let entry = format!(
+            "[{}] host={} path={} exit={} cmd={}\n",
+            now, self.target.host, self.target.remote_path, exit_code, command
+        );
+
+        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+            let _ = f.write_all(entry.as_bytes());
+        }
     }
 
     pub fn get_transport(&self) -> &Transport {
@@ -167,6 +254,9 @@ mod tests {
             logs: vec![],
             require_confirmation,
             exclude: vec![],
+            allowed_commands: vec![],
+            blocked_patterns: vec![],
+            audit_log: None,
         }
     }
 
@@ -279,5 +369,81 @@ mod tests {
         if let Err(e) = &result {
             assert!(!e.to_string().contains("No restart_cmd configured"));
         }
+    }
+
+    // ── is_blocked ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_blocked_no_patterns_returns_false() {
+        let executor = Executor::new(make_target(false));
+        assert!(!executor.is_blocked("rm -rf /"));
+    }
+
+    #[test]
+    fn test_is_blocked_matching_pattern() {
+        let mut target = make_target(false);
+        target.blocked_patterns = vec!["rm -rf".to_string()];
+        let executor = Executor::new(target);
+        assert!(executor.is_blocked("rm -rf /var/data"));
+    }
+
+    #[test]
+    fn test_is_blocked_non_matching_pattern() {
+        let mut target = make_target(false);
+        target.blocked_patterns = vec!["drop table".to_string()];
+        let executor = Executor::new(target);
+        assert!(!executor.is_blocked("npm run build"));
+    }
+
+    #[test]
+    fn test_is_blocked_case_insensitive() {
+        let mut target = make_target(false);
+        target.blocked_patterns = vec!["drop table".to_string()];
+        let executor = Executor::new(target);
+        assert!(executor.is_blocked("DROP TABLE users"));
+    }
+
+    #[test]
+    fn test_is_blocked_multiple_patterns_any_match() {
+        let mut target = make_target(false);
+        target.blocked_patterns = vec!["rm -rf".to_string(), "shutdown".to_string()];
+        let executor = Executor::new(target);
+        assert!(executor.is_blocked("shutdown -h now"));
+        assert!(!executor.is_blocked("npm install"));
+    }
+
+    // ── is_allowed ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_allowed_empty_list_permits_all() {
+        let executor = Executor::new(make_target(false));
+        assert!(executor.is_allowed("rm -rf /"));
+        assert!(executor.is_allowed("anything goes"));
+    }
+
+    #[test]
+    fn test_is_allowed_matching_prefix() {
+        let mut target = make_target(false);
+        target.allowed_commands = vec!["npm".to_string(), "cargo".to_string()];
+        let executor = Executor::new(target);
+        assert!(executor.is_allowed("npm install"));
+        assert!(executor.is_allowed("cargo build --release"));
+    }
+
+    #[test]
+    fn test_is_allowed_non_matching_prefix_rejected() {
+        let mut target = make_target(false);
+        target.allowed_commands = vec!["npm".to_string()];
+        let executor = Executor::new(target);
+        assert!(!executor.is_allowed("rm -rf /tmp"));
+        assert!(!executor.is_allowed("sudo systemctl restart"));
+    }
+
+    #[test]
+    fn test_is_allowed_case_insensitive() {
+        let mut target = make_target(false);
+        target.allowed_commands = vec!["npm".to_string()];
+        let executor = Executor::new(target);
+        assert!(executor.is_allowed("NPM install"));
     }
 }

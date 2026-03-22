@@ -249,6 +249,9 @@ mod tests {
             logs: vec![],
             require_confirmation: false,
             exclude: vec![],
+            allowed_commands: vec![],
+            blocked_patterns: vec![],
+            audit_log: None,
         })
     }
 
@@ -364,6 +367,9 @@ mod tests {
             logs: vec![],
             require_confirmation: false,
             exclude: vec!["node_modules/".to_string(), "*.log".to_string()],
+            allowed_commands: vec![],
+            blocked_patterns: vec![],
+            audit_log: None,
         };
         let t = Transport::new(target);
         let args = t.build_rsync_args(".", &[], false);

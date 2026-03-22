@@ -21,6 +21,18 @@ pub struct TargetConfig {
     /// Additional rsync exclude patterns beyond the defaults
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// If set, ONLY these exact commands (or prefixes) are allowed to run.
+    /// Any command not matching is blocked outright — regardless of AI intent.
+    #[serde(default)]
+    pub allowed_commands: Vec<String>,
+    /// Regex/substring patterns that are always blocked, even without confirmation.
+    /// Checked before allowed_commands.
+    #[serde(default)]
+    pub blocked_patterns: Vec<String>,
+    /// Path to write an audit log of every command executed.
+    /// Default: ~/.remote-bridge-audit.log
+    #[serde(default)]
+    pub audit_log: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -95,6 +107,9 @@ pub fn create_default_config<P: AsRef<Path>>(path: P, name: &str, host: &str, us
         logs: vec![format!("{}/logs/error.log", remote_path)],
         require_confirmation: false,
         exclude: vec![],
+        allowed_commands: vec![],
+        blocked_patterns: vec![],
+        audit_log: None,
     });
 
     let config = RemoteBridgeConfig {

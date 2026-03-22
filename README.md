@@ -6,6 +6,26 @@ RemoteBridge is a high-performance CLI tool written in Rust that acts as a state
 
 ---
 
+## 💬 Just Talk To Your AI
+
+Once installed, you don't run commands manually. You just tell your AI what you want — in plain English — and RemoteBridge handles it.
+
+```
+You:  "Sync my project files to the staging server"
+You:  "Run npm install on the remote server"
+You:  "Deploy my latest changes to sankara@192.168.1.251"
+You:  "Check what OS and runtimes are installed on the server"
+You:  "Tail the remote logs and show me what's failing"
+You:  "Something broke after deploy — fetch the logs and fix it"
+You:  "Push my code and restart the app"
+```
+
+Your AI calls the right tool, syncs the right files, runs the right commands — and if something fails, it reads the remote logs and fixes the code automatically.
+
+**No manual SSH. No piping. No copy-pasting errors.**
+
+---
+
 ## 🚀 The Problem & Solution
 
 **The Problem:** AI coding tools operate locally. Developers without CI/CD must manually FTP files and SSH into servers to test changes. The AI never sees remote runtime errors, creating a "context gap."
@@ -31,17 +51,36 @@ RemoteBridge is a high-performance CLI tool written in Rust that acts as a state
 
 ---
 
-## 🛠 Installation
+## 🛠 Get Started in 3 Steps
 
-### Prerequisites
-- **Rust:** Install via [rustup.rs](https://rustup.rs/)
-- **System Tools:** `rsync` and `ssh` must be in your PATH
+### Step 1 — Install
 
-### Install via NPM (Recommended)
+**Prerequisites:** Rust ([rustup.rs](https://rustup.rs/)), `rsync`, `ssh` in PATH
+
 ```bash
 npm install -g remote-bridge-cli
 ```
-> This triggers a local `cargo build --release` optimized for your architecture.
+> Builds a native binary optimized for your machine.
+
+### Step 2 — Add to your AI IDE
+
+```bash
+# Claude Code (available in every project automatically)
+claude mcp add remote-bridge --scope user -- remote-bridge mcp
+```
+
+For other tools see the [MCP configuration section](#-mcp-support--works-with-every-ai-ide) below.
+
+### Step 3 — Point it at your server
+
+Run this once per project:
+```bash
+remote-bridge init --name my-app -H your-server.com --user ubuntu --path /var/www/app
+```
+
+That's it. Now open your AI and just talk to it.
+
+---
 
 ### Build from Source
 ```bash
@@ -330,9 +369,33 @@ The pattern is always the same — `stdio` transport, command `remote-bridge`, a
 }
 ```
 
-Once configured, your AI can say things like:
-> *"Push my latest changes and restart the app"*
-> → automatically calls `sync_to_remote` then `restart_service`
+### What it actually looks like
+
+Once configured, you just talk to your AI naturally inside Claude Code, Cursor, Windsurf, or any MCP-enabled IDE:
+
+---
+
+**You:** *"Sync my project files to the staging server"*
+> RemoteBridge calls `sync_to_remote` → rsync transfers only changed files
+
+**You:** *"Run npm install on the remote server"*
+> RemoteBridge calls `run_remote_command` with `npm install` → streams output back
+
+**You:** *"Deploy my latest changes to sankara@192.168.1.251"*
+> RemoteBridge calls `deploy` → syncs files, restarts service, tails logs if it fails
+
+**You:** *"Check what OS and runtimes are installed on the server"*
+> RemoteBridge calls `preflight_check` → returns Ubuntu version, Node, Python, Docker
+
+**You:** *"Tail the remote logs and show me what's failing"*
+> RemoteBridge calls `fetch_logs` → AI reads the error and fixes your code
+
+**You:** *"Something broke after deploy — fetch the logs and fix it"*
+> RemoteBridge fetches logs → AI sees the stack trace → writes the fix → deploys again
+
+---
+
+The AI decides which tool to call. You just describe what you want.
 
 ---
 

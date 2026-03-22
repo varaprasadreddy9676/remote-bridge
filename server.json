@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.varaprasadreddy9676/remote-bridge",
+  "description": "Sync code to remote servers via SSH/rsync and deploy from any AI IDE.",
+  "repository": {
+    "url": "https://github.com/varaprasadreddy9676/remote-bridge",
+    "source": "github"
+  },
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "remote-bridge-cli",
+      "version": "0.1.1",
+      "transport": {
+        "type": "stdio",
+        "command": "remote-bridge",
+        "args": ["mcp"]
+      }
+    }
+  ]
+}

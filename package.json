@@ -6,9 +6,22 @@
     "remote-bridge": "./bin/remote-bridge"
   },
   "scripts": {
-    "postinstall": "cargo build --release && mkdir -p bin && cp target/release/remote-bridge ./bin/remote-bridge",
-    "test": "cargo test"
+    "postinstall": "node scripts/install.js",
+    "test": "cargo test",
+    "prepublishOnly": "cargo build --release && node scripts/install.js"
   },
+  "files": [
+    "bin/",
+    "scripts/",
+    "src/",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": ["linux", "darwin"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/varaprasadreddy9676/remote-bridge.git"
@@ -19,7 +32,9 @@
     "rsync",
     "mcp",
     "deployment",
-    "remote"
+    "remote",
+    "claude",
+    "gemini"
   ],
   "author": "Vara Prasad Reddy",
   "license": "MIT",

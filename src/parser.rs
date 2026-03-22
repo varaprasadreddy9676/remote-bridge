@@ -20,9 +20,7 @@ pub fn parse_markdown(text: &str) -> (Vec<FileChange>, Vec<ShellCommand>) {
     // Pattern for code blocks: ```[lang][ filename]\ncontent\n```
     let re = Regex::new(r"(?s)```(?P<header>[^\n\r]*)\r?\n(?P<content>.*?)\r?\n```").unwrap();
 
-    let mut found = false;
     for cap in re.captures_iter(text) {
-        found = true;
         let header = cap.name("header").map(|m| m.as_str().trim()).unwrap_or("");
         let content = cap.name("content").map(|m| m.as_str().to_string()).unwrap_or_default();
 
@@ -123,5 +121,68 @@ cat README.md
         assert_eq!(file_changes[0].path, "README.md");
         assert_eq!(shell_commands.len(), 1);
         assert_eq!(shell_commands[0].command, "cat README.md");
+    }
+
+    #[test]
+    fn test_parse_markdown_empty_input() {
+        let (file_changes, shell_commands) = parse_markdown("");
+        assert!(file_changes.is_empty());
+        assert!(shell_commands.is_empty());
+    }
+
+    #[test]
+    fn test_parse_markdown_no_code_blocks() {
+        let text = "This is plain text with no code blocks.";
+        let (file_changes, shell_commands) = parse_markdown(text);
+        assert!(file_changes.is_empty());
+        assert!(shell_commands.is_empty());
+    }
+
+    #[test]
+    fn test_parse_markdown_sh_language() {
+        let text = "```sh\necho hello\n```";
+        let (_, shell_commands) = parse_markdown(text);
+        assert_eq!(shell_commands.len(), 1);
+        assert_eq!(shell_commands[0].command, "echo hello");
+    }
+
+    #[test]
+    fn test_parse_markdown_shell_language() {
+        let text = "```shell\npwd\n```";
+        let (_, shell_commands) = parse_markdown(text);
+        assert_eq!(shell_commands.len(), 1);
+        assert_eq!(shell_commands[0].command, "pwd");
+    }
+
+    #[test]
+    fn test_parse_markdown_file_content_preserved() {
+        let text = "```js src/index.js\nconsole.log('hello');\n```";
+        let (file_changes, _) = parse_markdown(text);
+        assert_eq!(file_changes.len(), 1);
+        assert_eq!(file_changes[0].content, "console.log('hello');");
+    }
+
+    #[test]
+    fn test_parse_markdown_multiple_shell_commands() {
+        let text = "```bash\nnpm install\n```\n```bash\nnpm test\n```";
+        let (_, shell_commands) = parse_markdown(text);
+        assert_eq!(shell_commands.len(), 2);
+        assert_eq!(shell_commands[0].command, "npm install");
+        assert_eq!(shell_commands[1].command, "npm test");
+    }
+
+    #[test]
+    fn test_parse_markdown_file_lang_field() {
+        let text = "```python src/main.py\nprint('hi')\n```";
+        let (file_changes, _) = parse_markdown(text);
+        assert_eq!(file_changes[0].lang, Some("python".to_string()));
+    }
+
+    #[test]
+    fn test_parse_markdown_preceding_path_label() {
+        let text = "path: config/settings.json\n```json\n{\"key\": \"value\"}\n```";
+        let (file_changes, _) = parse_markdown(text);
+        assert_eq!(file_changes.len(), 1);
+        assert_eq!(file_changes[0].path, "config/settings.json");
     }
 }

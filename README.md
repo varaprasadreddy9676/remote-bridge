@@ -100,6 +100,37 @@ cat fix_instructions.md | remote-bridge apply
 
 ---
 
+## 🔒 SSH Authentication & Security
+
+RemoteBridge does not store your passwords. Instead, it leverages your existing system's **SSH Key** authentication for a seamless, automated experience.
+
+### Setup for the Best Experience
+
+1. **Copy your SSH Key to the Remote Server:**
+   This allows RemoteBridge to run without asking for your password every time.
+   ```bash
+   ssh-copy-id -i ~/.ssh/id_rsa.pub ubuntu@13.234.xx.xx
+   ```
+
+2. **Use `~/.ssh/config` for Custom Keys:**
+   If you have a specific `.pem` file or non-standard port, define it in your local SSH config:
+   ```text
+   Host staging-server
+       HostName 13.234.xx.xx
+       User ubuntu
+       IdentityFile ~/keys/my-special-key.pem
+       Port 22
+   ```
+   Then in your `remotebridge.yaml`, simply use:
+   ```yaml
+   host: "staging-server"
+   user: "ubuntu"
+   ```
+
+By using SSH Keys, you enable the AI to run multiple commands (like `npm install` -> `npm build` -> `pm2 restart`) in a single "apply" loop without any manual intervention.
+
+---
+
 ## 🛡 Safety First
 
 RemoteBridge includes a **Permission Gate**. By default, it will prompt you before running:

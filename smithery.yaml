@@ -12,9 +12,9 @@ args:
 
 tools:
   - name: sync_to_remote
-    description: Syncs local files to the remote server via rsync over SSH
+    description: Syncs a local directory to the remote server via rsync over SSH. Supports local_path, dry_run, delete (opt-in, off by default), and confirm (required when target has require_confirmation=true).
   - name: run_remote_command
-    description: Executes a shell command on the remote server and returns stdout/stderr
+    description: Executes a shell command on the remote server and returns stdout/stderr. Output truncated to max_lines (default 100).
   - name: preflight_check
     description: Checks the remote environment for OS version and available runtimes (Node, Python, Rust, Docker)
   - name: fetch_logs
@@ -44,5 +44,14 @@ configuration:
         port: 22
         ssh_key: "~/.ssh/id_rsa"
         restart_cmd: "pm2 restart app"
+        logs:
+          - "/var/www/app/logs/error.log"
+      production:
+        host: "prod.example.com"
+        user: "ubuntu"
+        remote_path: "/var/www/app"
+        ssh_key: "~/.ssh/id_rsa"
+        restart_cmd: "pm2 restart app"
+        require_confirmation: true
         logs:
           - "/var/www/app/logs/error.log"

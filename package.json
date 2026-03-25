@@ -1,6 +1,6 @@
 {
   "name": "remote-bridge-cli",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "mcpName": "io.github.varaprasadreddy9676/remote-bridge",
   "description": "Bridge the gap between AI-generated code and remote servers",
   "bin": {

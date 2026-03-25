@@ -65,13 +65,29 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                         "tools": [
                             {
                                 "name": "sync_to_remote",
-                                "description": "Syncs local files to the remote server via rsync over SSH",
+                                "description": "Syncs a local directory to the remote server via rsync over SSH. If the target has require_confirmation=true in remotebridge.yaml, a dry-run preview is returned and you MUST re-call with confirm=true to proceed. WARNING: when delete=true, remote files not present locally are permanently deleted — always set local_path explicitly.",
                                 "inputSchema": {
                                     "type": "object",
                                     "properties": {
                                         "target": {
                                             "type": "string",
                                             "description": "Target name from remotebridge.yaml (default: staging)"
+                                        },
+                                        "local_path": {
+                                            "type": "string",
+                                            "description": "Local directory to sync (default: current working directory '.'). Set this explicitly to avoid syncing the wrong directory."
+                                        },
+                                        "dry_run": {
+                                            "type": "boolean",
+                                            "description": "If true, preview what would be synced without transferring any files (default: false)"
+                                        },
+                                        "delete": {
+                                            "type": "boolean",
+                                            "description": "If true, delete remote files that do not exist locally (default: false). DESTRUCTIVE — only set this when you intend a full mirror sync."
+                                        },
+                                        "confirm": {
+                                            "type": "boolean",
+                                            "description": "Required when the target has require_confirmation=true. Review the dry-run output first, then re-call with confirm=true to execute."
                                         }
                                     }
                                 }
@@ -167,7 +183,13 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                     let target = tool_args["target"].as_str().unwrap_or("staging");
 
                     let result: Result<String, Box<dyn std::error::Error>> = match tool_name {
-                        "sync_to_remote" => handle_sync(target),
+                        "sync_to_remote" => {
+                            let local_path = tool_args["local_path"].as_str().unwrap_or(".");
+                            let dry_run = tool_args["dry_run"].as_bool().unwrap_or(false);
+                            let delete = tool_args["delete"].as_bool().unwrap_or(false);
+                            let confirm = tool_args["confirm"].as_bool().unwrap_or(false);
+                            handle_sync(target, local_path, dry_run, delete, confirm)
+                        }
                         "run_remote_command" => {
                             let cmd = tool_args["command"].as_str().unwrap_or("");
                             let max_lines = tool_args["max_lines"].as_u64().unwrap_or(100) as usize;
@@ -219,12 +241,34 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn handle_sync(target: &str) -> Result<String, Box<dyn std::error::Error>> {
+fn handle_sync(target: &str, local_path: &str, dry_run: bool, delete: bool, confirm: bool) -> Result<String, Box<dyn std::error::Error>> {
     let config = load_config(find_config()?)?;
     let target_cfg = config.targets.get(target).ok_or(format!("Target {} not found", target))?;
+
+    // If the target requires confirmation and the caller hasn't confirmed,
+    // run a dry-run and return the preview — refuse to sync.
+    if target_cfg.require_confirmation && !confirm {
+        let executor = Executor::new(target_cfg.clone());
+        let args = executor.get_transport().build_rsync_args(local_path, &[".git/".to_string()], true, delete);
+        let output = std::process::Command::new("rsync").args(&args).output()?;
+        let preview = String::from_utf8_lossy(&output.stdout);
+        let preview = preview.trim();
+        let preview = if preview.is_empty() { "(nothing to sync — remote is already up to date)" } else { preview };
+        return Err(format!(
+            "This target requires confirmation before syncing.\n\
+             Dry-run preview:\n{}\n\
+             Re-call sync_to_remote with confirm=true to proceed.",
+            preview
+        ).into());
+    }
+
     let executor = Executor::new(target_cfg.clone());
-    executor.get_transport().sync_files(".", vec![".git/".to_string()], false)?;
-    Ok("Sync complete".to_string())
+    executor.get_transport().sync_files(local_path, vec![".git/".to_string()], dry_run, delete)?;
+    if dry_run {
+        Ok("Dry run complete — no files were transferred.".to_string())
+    } else {
+        Ok("Sync complete".to_string())
+    }
 }
 
 fn handle_restart(target: &str) -> Result<String, Box<dyn std::error::Error>> {

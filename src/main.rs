@@ -34,6 +34,9 @@ enum Commands {
         /// Preview what would be synced without actually transferring files
         #[arg(long)]
         dry_run: bool,
+        /// Delete remote files that do not exist locally (DESTRUCTIVE — use with care)
+        #[arg(long)]
+        delete: bool,
     },
 
     /// Executes a command on the remote target
@@ -105,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("remotebridge.yaml created successfully!");
         }
 
-        Commands::Sync { target, dry_run } => {
+        Commands::Sync { target, dry_run, delete } => {
             let config = load_config(find_config()?)?;
             let target_cfg = config.targets.get(&target)
                 .ok_or(format!("Target '{}' not found in remotebridge.yaml", target))?;
@@ -114,6 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ".",
                 vec![".git/".to_string(), ".remote_bridge/".to_string()],
                 dry_run,
+                delete,
             )?;
         }
 

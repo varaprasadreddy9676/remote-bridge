@@ -35,6 +35,7 @@ impl Executor {
             ".",
             vec![".git/".to_string(), ".remote_bridge/".to_string()],
             false,
+            true,
         )?;
         Ok(())
     }
@@ -134,6 +135,7 @@ impl Executor {
             ".",
             vec![".git/".to_string(), ".remote_bridge/".to_string()],
             false,
+            true,
         )?;
 
         if self.target.restart_cmd.is_some() {

@@ -109,7 +109,7 @@ pub fn watch_and_sync(
                 println!("  ~ {}", path.display());
             }
 
-            if let Err(e) = transport.sync_files(local_path, exclude.clone(), false) {
+            if let Err(e) = transport.sync_files(local_path, exclude.clone(), false, false) {
                 eprintln!("Sync error: {}", e);
             }
 

@@ -50,8 +50,12 @@ impl Transport {
         local_path: &str,
         exclude: &[String],
         dry_run: bool,
+        delete: bool,
     ) -> Vec<String> {
-        let mut args = vec!["-avz".to_string(), "--delete".to_string()];
+        let mut args = vec!["-avz".to_string()];
+        if delete {
+            args.push("--delete".to_string());
+        }
 
         if dry_run {
             args.push("--dry-run".to_string());
@@ -94,12 +98,13 @@ impl Transport {
         local_path: &str,
         exclude: Vec<String>,
         dry_run: bool,
+        delete: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if which("rsync").is_err() {
             return Err("rsync not found. Please install it.".into());
         }
 
-        let args = self.build_rsync_args(local_path, &exclude, dry_run);
+        let args = self.build_rsync_args(local_path, &exclude, dry_run, delete);
 
         if dry_run {
             println!(
@@ -316,18 +321,32 @@ mod tests {
     #[test]
     fn test_build_rsync_args_basic() {
         let t = make_transport(None, None);
-        let args = t.build_rsync_args(".", &[".git/".to_string()], false);
+        let args = t.build_rsync_args(".", &[".git/".to_string()], false, false);
         assert!(args.contains(&"-avz".to_string()));
-        assert!(args.contains(&"--delete".to_string()));
+        assert!(!args.contains(&"--delete".to_string()));
         assert!(args.contains(&"--exclude".to_string()));
         assert!(args.contains(&".git/".to_string()));
         assert!(!args.contains(&"--dry-run".to_string()));
     }
 
     #[test]
+    fn test_build_rsync_args_delete_flag_off_by_default() {
+        let t = make_transport(None, None);
+        let args = t.build_rsync_args(".", &[], false, false);
+        assert!(!args.contains(&"--delete".to_string()));
+    }
+
+    #[test]
+    fn test_build_rsync_args_delete_flag_when_enabled() {
+        let t = make_transport(None, None);
+        let args = t.build_rsync_args(".", &[], false, true);
+        assert!(args.contains(&"--delete".to_string()));
+    }
+
+    #[test]
     fn test_build_rsync_args_dry_run_flag() {
         let t = make_transport(None, None);
-        let args = t.build_rsync_args(".", &[], true);
+        let args = t.build_rsync_args(".", &[], true, false);
         assert!(args.contains(&"--dry-run".to_string()));
         assert!(args.contains(&"--itemize-changes".to_string()));
     }
@@ -335,14 +354,14 @@ mod tests {
     #[test]
     fn test_build_rsync_args_no_dry_run_flag() {
         let t = make_transport(None, None);
-        let args = t.build_rsync_args(".", &[], false);
+        let args = t.build_rsync_args(".", &[], false, false);
         assert!(!args.contains(&"--dry-run".to_string()));
     }
 
     #[test]
     fn test_build_rsync_args_with_ssh_transport() {
         let t = make_transport(Some(2222), None);
-        let args = t.build_rsync_args(".", &[], false);
+        let args = t.build_rsync_args(".", &[], false, false);
         assert!(args.contains(&"-e".to_string()));
         let e_pos = args.iter().position(|a| a == "-e").unwrap();
         assert_eq!(args[e_pos + 1], "ssh -o LogLevel=ERROR -p 2222");
@@ -351,7 +370,7 @@ mod tests {
     #[test]
     fn test_build_rsync_args_dest_format() {
         let t = make_transport(None, None);
-        let args = t.build_rsync_args(".", &[], false);
+        let args = t.build_rsync_args(".", &[], false, false);
         assert!(args.last().unwrap().contains("deploy@example.com:/var/www/app"));
     }
 
@@ -372,7 +391,7 @@ mod tests {
             audit_log: None,
         };
         let t = Transport::new(target);
-        let args = t.build_rsync_args(".", &[], false);
+        let args = t.build_rsync_args(".", &[], false, false);
         assert!(args.contains(&"node_modules/".to_string()));
         assert!(args.contains(&"*.log".to_string()));
     }

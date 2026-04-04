@@ -140,23 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let transport = executor.get_transport();
 
             println!("Running pre-flight check on {}...", target);
-
-            let (_, os, _) = transport.run_remote_command(
-                "lsb_release -d 2>/dev/null || grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '\"'"
-            )?;
-            println!("OS: {}", os.trim());
-
-            let (code, node, _) = transport.run_remote_command("node -v")?;
-            if code == 0 { println!("Node.js: {}", node.trim()); } else { println!("Node.js: Not found"); }
-
-            let (code, python, _) = transport.run_remote_command("python3 --version")?;
-            if code == 0 { println!("Python: {}", python.trim()); } else { println!("Python: Not found"); }
-
-            let (code, rust, _) = transport.run_remote_command("rustc --version")?;
-            if code == 0 { println!("Rust: {}", rust.trim()); } else { println!("Rust: Not found"); }
-
-            let (code, docker, _) = transport.run_remote_command("docker --version")?;
-            if code == 0 { println!("Docker: {}", docker.trim()); } else { println!("Docker: Not found"); }
+            print!("{}", transport.preflight_check()?);
         }
 
         Commands::Logs { target, lines, follow } => {

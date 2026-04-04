@@ -1,108 +1,178 @@
 # RemoteBridge 🌉
 
-**Bridge the gap between AI-generated code and remote servers.**
+**Turn remote-server work into safe, token-efficient MCP tools instead of making your AI improvise SSH every time.**
 
-RemoteBridge is a high-performance CLI tool written in Rust that acts as a stateful proxy between your local AI coding environment (Claude Code, Gemini CLI, Aider, etc.) and your remote infrastructure. It parses Markdown output from AI tools, syncs file changes via `rsync`, executes remote commands over SSH, and pipes logs back to your terminal — so the AI can "see" remote errors and fix them.
+RemoteBridge is a Rust CLI and MCP server for AI-assisted remote workflows. It syncs local code with `rsync`, runs remote commands over SSH, gathers logs and diagnostics, compares environments, and wraps all of that in a config-aware tool surface your AI can use directly.
 
----
+It does not replace SSH as a protocol. It makes SSH more useful for AI agents.
 
-## 💬 Just Talk To Your AI
+## What Problem This Actually Solves
 
-Once installed, you don't run commands manually. You just tell your AI what you want — in plain English — and RemoteBridge handles it.
+If you let an AI talk to a server through raw `ssh`, it can usually get the job done. But it has to rediscover the same facts over and over:
 
+- Which host should I use?
+- What directory is the app deployed in?
+- How do I restart this service?
+- Where are the logs?
+- Which commands are safe here?
+- How much output can I afford to send back without blowing context?
+
+That repeated discovery is where time, tokens, and mistakes accumulate.
+
+RemoteBridge moves those recurring facts and workflows into tools. Instead of:
+
+```bash
+ssh user@host "cd /var/www/app && npm install && pm2 restart app && tail -n 100 /var/www/app/logs/error.log"
 ```
-You:  "Sync my project files to the staging server"
-You:  "Run npm install on the remote server"
-You:  "Deploy my latest changes to ubuntu@your-server.com"
-You:  "Check what OS and runtimes are installed on the server"
-You:  "Tail the remote logs and show me what's failing"
-You:  "Something broke after deploy — fetch the logs and fix it"
-You:  "Push my code and restart the app"
-```
 
-Your AI calls the right tool, syncs the right files, runs the right commands — and if something fails, it reads the remote logs and fixes the code automatically.
+your AI can call:
 
-**No manual SSH. No piping. No copy-pasting errors.**
+- `sync_to_remote`
+- `deploy`
+- `fetch_logs`
+- `diagnose_failure`
+- `compare_targets`
 
----
+That is the difference between "AI with shell access" and "AI with an operational interface."
 
-## 🚀 The Problem & Solution
+## Direct SSH vs RemoteBridge MCP
 
-**The Problem:** AI coding tools operate locally. Developers without CI/CD must manually FTP files and SSH into servers to test changes. The AI never sees remote runtime errors, creating a "context gap."
+Use direct SSH when:
 
-**The Solution:** RemoteBridge automates the **Sync → Run → Feedback** loop. It parses AI output, applies file changes locally, syncs them to a remote target, runs commands, and tails remote logs if something fails.
+- You want a fully interactive shell.
+- You already know the exact command.
+- You need ad hoc exploration and do not care about token cost.
+- You are doing a one-off urgent command and want raw terminal behavior.
 
----
+Use RemoteBridge when:
 
-## ✨ Features
+- The AI is driving the workflow.
+- The same server facts keep getting rediscovered.
+- You want deploy/restart/log/debug flows to be repeatable.
+- You need guardrails around destructive commands.
+- You want compact answers instead of full shell transcripts.
+- You want config-aware operations like "compare staging and production" instead of open-ended shell probing.
 
-| Feature | Description |
+Direct SSH can be faster for one command. RemoteBridge is usually better for the full AI loop.
+
+## Why This Saves Tokens In Practice
+
+RemoteBridge is useful when it removes low-value conversation between the model and the server.
+
+It saves tokens in a few concrete ways:
+
+- `run_remote_command` truncates combined `stdout` and `stderr` to a shared line budget, so the model gets the important tail instead of a full transcript.
+- `preflight_check` gathers OS and runtime facts in one remote call instead of making the AI issue several separate shell commands.
+- `fetch_logs` pulls configured log files in one structured response instead of the AI repeatedly asking where logs live and tailing each file manually.
+- `diagnose_failure` gathers service state, listeners, disk, memory, runtime info, and recent logs in one pass, then summarizes likely causes.
+- `compare_targets` turns "SSH into staging, SSH into prod, inspect both, diff mentally" into one semantic tool call.
+- `deploy` and `restart_service` remove the need for the AI to restate shell glue like `cd /path && ...` every time.
+- Config values such as `remote_path`, `restart_cmd`, `logs`, `allowed_commands`, and `blocked_patterns` are stored once and reused on every call.
+
+The important point is not just "fewer SSH commands." It is "less repeated reasoning around the same infrastructure facts."
+
+## Why This Is Better Than Letting AI Freestyle Shell
+
+Raw SSH gives the AI a lot of power, but very little structure.
+
+RemoteBridge adds:
+
+- Config awareness: target host, deploy path, restart command, and log paths live in `remotebridge.yaml`.
+- Operational semantics: tools like `deploy`, `diagnose_failure`, and `compare_targets` describe intent, not just shell syntax.
+- Safer defaults: dangerous commands can require confirmation, be blocked entirely, or be limited to allowlisted prefixes.
+- Better output discipline: the MCP surface returns compressed, useful output instead of dumping everything.
+- Local + remote coordination: syncing local files to a remote server is part of the same workflow instead of a separate manual step.
+
+That last point matters. A remote shell alone cannot see your local uncommitted code. RemoteBridge can sync exactly what the AI changed locally, then execute the remote step that depends on it.
+
+## Core Value
+
+RemoteBridge is not trying to beat SSH at being a shell.
+
+It is trying to give AI agents a better abstraction than:
+
+1. guess the host
+2. guess the path
+3. guess the service manager
+4. guess the logs
+5. dump too much output
+6. try again
+
+## Features
+
+| Feature | Why it matters |
 | :--- | :--- |
-| **Markdown Interception** | Extracts ` ```bash ` and ` ```lang filename ` blocks from STDIN automatically |
-| **Shadow Syncing** | Ultra-fast delta-based file transfer via `rsync` over SSH |
-| **`--dry-run`** | Preview exactly what rsync would transfer before touching anything |
-| **Watch Mode** | Polls local files and auto-syncs on any change — live deploy loop |
-| **Full Deploy Pipeline** | One command: sync → restart → tail logs on failure |
-| **Permission Gate** | Pauses for confirmation on `sudo`, `rm`, database commands, and 20+ dangerous patterns |
-| **Hard Block** | User-defined `blocked_patterns` are always rejected — no AI override possible |
-| **Allowlist** | `allowed_commands` lets you restrict exactly which commands can ever run |
-| **Audit Log** | Every command logged with exit code to `~/.remote-bridge-audit.log` |
-| **Pre-flight Check** | Detects remote OS, Node.js, Python, Rust, Docker versions |
-| **Log Backfeed** | Auto-tails remote logs when a command fails — AI reads and fixes |
-| **MCP Server** | Native Model Context Protocol server for Claude Desktop & other AI IDEs |
-| **SSH Key + Port** | Per-target SSH identity file and custom port support |
+| **Rsync Sync** | Push local code to the server without re-uploading everything |
+| **SSH Multiplexing** | Reuses OpenSSH control connections across repeated sync and command calls |
+| **Structured MCP Tools** | Lets the AI call semantic actions instead of building shell strings each time |
+| **Output Truncation** | Keeps command responses small enough to stay useful in model context |
+| **Preflight Check** | Captures runtime facts in one step |
+| **Deploy Pipeline** | Encodes sync → restart → failure-log flow as one operation |
+| **Failure Diagnosis** | Pulls service state, runtime facts, listeners, disk, memory, and logs into one compact summary |
+| **Target Comparison** | Surfaces config drift and runtime drift between environments |
+| **Safety Gates** | Confirmation, hard blocks, and allowlists reduce destructive mistakes |
+| **Audit Log** | Records what actually ran and how it exited |
+| **Watch Mode** | Keeps a remote target in sync during an edit/test loop |
+| **Per-target SSH Config** | Supports host/user/path/port/key per environment |
 
----
+## A Practical Example
 
-## 🛠 Get Started in 3 Steps
+Without RemoteBridge, an AI debugging a broken deploy often does something like this:
 
-### Step 1 — Install
+1. SSH in.
+2. Ask for `pwd`.
+3. Ask for `ls`.
+4. Try to find the app path.
+5. Guess how to restart the service.
+6. Ask for logs.
+7. Pull too much output.
+8. Ask follow-up questions because the output was noisy.
 
-**Prerequisites:** Rust ([rustup.rs](https://rustup.rs/)), `rsync`, `ssh` in PATH
+With RemoteBridge, the same request can be:
+
+**You:** "The staging deploy is broken. Diagnose it."
+
+The AI can call `diagnose_failure` and get back:
+
+- target identity
+- inferred service manager
+- service health
+- runtime versions
+- disk or memory pressure signals
+- relevant log excerpts
+- likely causes
+- next-step suggestions
+
+That is a much better use of context than a multi-turn shell transcript.
+
+## Quick Start
+
+### 1. Install
+
+Prerequisites: Rust, `rsync`, and `ssh` available in `PATH`.
 
 ```bash
 npm install -g remote-bridge-cli
 ```
-> Builds a native binary optimized for your machine.
 
-### Step 2 — Add to your AI IDE
+### 2. Add the MCP server to your AI tool
 
 ```bash
-# Claude Code (available in every project automatically)
 claude mcp add remote-bridge --scope user -- remote-bridge mcp
 ```
 
-For other tools see the [MCP configuration section](#-mcp-support--works-with-every-ai-ide) below.
+See [MCP Support](#mcp-support) below for other tools.
 
-### Step 3 — Point it at your server
+### 3. Initialize project config
 
-Run this once per project:
 ```bash
 remote-bridge init --name my-app -H your-server.com --user ubuntu --path /var/www/app
 ```
 
-That's it. Now open your AI and just talk to it.
+That creates `remotebridge.yaml`, which becomes the shared source of truth for your AI workflows.
 
----
+## Example Configuration
 
-### Build from Source
-```bash
-git clone https://github.com/varaprasadreddy9676/remote-bridge.git
-cd remote-bridge
-cargo build --release
-cp target/release/remote-bridge /usr/local/bin/
-```
-
----
-
-## ⚙️ Configuration (`remotebridge.yaml`)
-
-Initialize a project:
-```bash
-remote-bridge init --name my-app -H 13.234.xx.xx --user ubuntu --path /var/www/html/app
-```
-
-This creates a `remotebridge.yaml`:
 ```yaml
 project_name: "my-app"
 targets:
@@ -110,23 +180,23 @@ targets:
     host: "13.234.xx.xx"
     user: "ubuntu"
     remote_path: "/var/www/html/app"
-    port: 22                          # optional, default: 22
-    ssh_key: "~/.ssh/id_rsa"          # optional, uses default SSH key if omitted
-    restart_cmd: "pm2 restart app"    # optional, used by restart & deploy commands
+    port: 22
+    ssh_key: "~/.ssh/id_rsa"
+    restart_cmd: "pm2 restart app"
     logs:
       - "/var/www/html/app/logs/error.log"
       - "/var/log/nginx/error.log"
-    require_confirmation: false        # set true to confirm every command
-    exclude:                           # extra rsync exclusions beyond .gitignore
+    require_confirmation: false
+    exclude:
       - "node_modules/"
       - "*.log"
-    blocked_patterns:                  # always rejected — no AI override
+    blocked_patterns:
       - "rm -rf"
       - "drop table"
-    allowed_commands:                  # when set, only these prefixes can run
+    allowed_commands:
       - "npm"
       - "pm2"
-    audit_log: "~/.remote-bridge-staging.log"  # default: ~/.remote-bridge-audit.log
+    audit_log: "~/.remote-bridge-staging.log"
   production:
     host: "prod.example.com"
     user: "ubuntu"
@@ -138,102 +208,120 @@ targets:
     require_confirmation: true
 ```
 
----
+## Why `remotebridge.yaml` Matters
 
-## 📖 Commands
+This file is the reason the MCP tool is more useful than raw SSH.
 
-### Core Workflow
+It stores facts the AI should not have to rediscover:
+
+- where the app lives
+- how it restarts
+- which logs matter
+- which commands are safe
+- which environment needs stronger confirmation
+
+Once that information is encoded once, every future tool call gets simpler and cheaper.
+
+## CLI Commands
 
 | Command | Description |
 | :--- | :--- |
-| `init` | Create a new `remotebridge.yaml` config |
-| `preflight` | Check remote OS, Node.js, Python, Rust, Docker versions |
+| `init` | Create a new `remotebridge.yaml` |
 | `sync` | Sync local files to the remote server |
-| `sync --dry-run` | Preview what would be synced without transferring anything |
-| `run <cmd>` | Execute a single command on the remote server |
-| `apply` | **(Core)** Parse STDIN Markdown and apply file changes + commands |
+| `sync --dry-run` | Preview rsync changes without touching the server |
+| `run <cmd>` | Execute one remote command |
+| `preflight` | Collect remote OS and runtime versions |
+| `logs` | Fetch recent configured logs |
+| `logs --follow` | Stream configured logs live |
+| `restart` | Restart the configured service |
+| `deploy` | Sync, restart, and fetch failure context if restart fails |
+| `watch` | Poll local files and auto-sync on change |
+| `apply` | Parse Markdown from AI output and apply file changes plus shell commands |
 
-### Service Management
+## Integrating With AI CLIs
 
-| Command | Description |
-| :--- | :--- |
-| `restart` | Restart the remote service using `restart_cmd` from config |
-| `deploy` | **Full pipeline:** sync → restart → tail logs on failure |
-| `deploy --follow` | Same as above, then `tail -f` logs after success |
+RemoteBridge is also pipe-friendly.
 
-### Monitoring
+### Claude Code
 
-| Command | Description |
-| :--- | :--- |
-| `logs` | Fetch the last 50 lines from configured log files |
-| `logs -n 200` | Fetch the last 200 lines |
-| `logs --follow` | Stream logs live (`tail -f`) |
-
-### Developer Loop
-
-| Command | Description |
-| :--- | :--- |
-| `watch` | Poll local files every 2s, auto-sync on change |
-| `watch --interval 5` | Custom polling interval in seconds |
-
----
-
-## 🤖 Integrating with AI CLIs
-
-RemoteBridge is pipe-friendly. Pipe any AI tool's output directly into `remote-bridge apply`.
-
-### With Claude Code
 ```bash
 claude "Fix the database connection in src/db.ts and restart the app" --non-interactive \
   | remote-bridge apply --target staging
 ```
 
-### With Gemini CLI
+### Gemini CLI
+
 ```bash
 gemini "Add rate limiting to the Express API" \
   | remote-bridge apply --target staging
 ```
 
-### With Aider
+### Aider
+
 ```bash
 aider --message "Refactor the login logic" --apply \
   | remote-bridge apply --target staging
 ```
 
-### The Full AI Loop (Recommended)
-```bash
-# 1. Start watching in one terminal — changes sync automatically
-remote-bridge watch --target staging
+## MCP Support
 
-# 2. Run AI in another terminal
-claude "Optimize the database queries in src/db.ts"
-
-# 3. Deploy when ready
-remote-bridge deploy --target staging --follow
-```
-
----
-
-## 🔌 MCP Support — Works With Every AI IDE
-
-RemoteBridge is a native **Model Context Protocol (MCP)** server. Any MCP-compatible AI IDE can use it as a tool directly — no piping required. The config is almost identical across all tools.
+RemoteBridge is a native MCP server. Any MCP-compatible AI IDE can use it.
 
 ### Available MCP Tools
 
-| Tool | Description |
+| Tool | Practical value |
 | :--- | :--- |
-| `sync_to_remote` | Push local code to the remote server |
-| `run_remote_command` | Execute any shell command on the remote host |
-| `preflight_check` | Check remote OS and runtime versions |
-| `fetch_logs` | Retrieve recent log lines |
-| `restart_service` | Restart the configured remote service |
-| `deploy` | Full sync + restart + log-tail pipeline |
+| `sync_to_remote` | Push local code to the server from the same AI session |
+| `run_remote_command` | Run remote shell commands with bounded output |
+| `preflight_check` | Get runtime facts in one compact response |
+| `fetch_logs` | Pull configured logs without rediscovering paths |
+| `restart_service` | Reuse the configured restart command safely |
+| `deploy` | Run the standard remote deploy flow as one action |
+| `diagnose_failure` | Collect and summarize failure context instead of streaming raw shell debugging |
+| `compare_targets` | Compare environments using both config and live runtime facts |
 
----
+### What These Tools Let AI Do Better Than Raw SSH
+
+`diagnose_failure` is the clearest example.
+
+A raw SSH agent has to decide:
+
+- which service manager exists
+- how to inspect it
+- which logs to read
+- how many lines to tail
+- whether disk, memory, or port state might be relevant
+- which lines are likely signal versus noise
+
+`diagnose_failure` bakes that investigation into one operation.
+
+`compare_targets` is another example. SSH can inspect one server at a time. This tool compares:
+
+- host/path/config differences
+- confirmation-policy drift
+- service-manager differences
+- runtime version differences
+- high-level compatibility risks
+
+That is not impossible with SSH. It is just expensive and repetitive for AI.
+
+### Example Requests
+
+Inside an MCP-enabled IDE, you can say:
+
+- "Sync my current project to staging."
+- "Deploy the latest local changes to staging."
+- "Check what runtimes are installed on production."
+- "The app failed after deploy. Diagnose staging."
+- "Compare staging and production and tell me if runtime drift could explain the bug."
+- "Show me the last 100 log lines for production."
+
+## MCP Configuration Examples
 
 ### Claude Desktop
 
 File: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
 ```json
 {
   "mcpServers": {
@@ -244,12 +332,11 @@ File: `~/Library/Application Support/Claude/claude_desktop_config.json`
   }
 }
 ```
-
----
 
 ### Cursor
 
-File: `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (per-project)
+File: `~/.cursor/mcp.json` or `.cursor/mcp.json`
+
 ```json
 {
   "mcpServers": {
@@ -260,13 +347,9 @@ File: `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (per-project)
   }
 }
 ```
-Or go to **Cursor Settings → MCP → Add Server**.
 
----
+### VS Code / Cline / Continue / Copilot-compatible MCP clients
 
-### VS Code (GitHub Copilot / Continue / Cline)
-
-File: `.vscode/mcp.json` in your project root
 ```json
 {
   "servers": {
@@ -278,48 +361,11 @@ File: `.vscode/mcp.json` in your project root
   }
 }
 ```
-For the **Cline** extension, add via the Cline sidebar → MCP Servers → Configure.
 
----
-
-### Windsurf (Codeium)
-
-File: `~/.codeium/windsurf/mcp_config.json`
-```json
-{
-  "mcpServers": {
-    "remote-bridge": {
-      "command": "remote-bridge",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-Or go to **Windsurf Settings → Cascade → MCP Servers → Add**.
-
----
-
-### Zed
-
-File: `~/.config/zed/settings.json`
-```json
-{
-  "context_servers": {
-    "remote-bridge": {
-      "command": {
-        "path": "remote-bridge",
-        "args": ["mcp"]
-      }
-    }
-  }
-}
-```
-
----
-
-### OpenAI Codex CLI
+### Codex CLI
 
 File: `~/.codex/config.json`
+
 ```json
 {
   "mcpServers": {
@@ -330,47 +376,15 @@ File: `~/.codex/config.json`
   }
 }
 ```
-Or pass inline: `codex --mcp-server "remote-bridge mcp" "Deploy my changes"`
 
----
+Or inline:
 
-### Continue.dev
-
-File: `~/.continue/config.json`
-```json
-{
-  "mcpServers": [
-    {
-      "name": "remote-bridge",
-      "command": "remote-bridge",
-      "args": ["mcp"]
-    }
-  ]
-}
+```bash
+codex --mcp-server "remote-bridge mcp" "Diagnose the staging deploy failure"
 ```
 
----
+### Generic MCP Pattern
 
-### Claude Code (CLI)
-
-File: `.claude/mcp.json` in your project, or `~/.claude/mcp.json` globally
-```json
-{
-  "mcpServers": {
-    "remote-bridge": {
-      "command": "remote-bridge",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-Or add via CLI: `claude mcp add remote-bridge -- remote-bridge mcp`
-
----
-
-### Any MCP-compatible tool
-
-The pattern is always the same — `stdio` transport, command `remote-bridge`, arg `mcp`:
 ```json
 {
   "command": "remote-bridge",
@@ -379,48 +393,18 @@ The pattern is always the same — `stdio` transport, command `remote-bridge`, a
 }
 ```
 
-### What it actually looks like
+## SSH Authentication
 
-Once configured, you just talk to your AI naturally inside Claude Code, Cursor, Windsurf, or any MCP-enabled IDE:
+RemoteBridge uses your existing SSH setup.
 
----
+1. Copy your key to the server:
 
-**You:** *"Sync my project files to the staging server"*
-> RemoteBridge calls `sync_to_remote` → rsync transfers only changed files
-
-**You:** *"Run npm install on the remote server"*
-> RemoteBridge calls `run_remote_command` with `npm install` → streams output back
-
-**You:** *"Deploy my latest changes to ubuntu@your-server.com"*
-> RemoteBridge calls `deploy` → syncs files, restarts service, tails logs if it fails
-
-**You:** *"Check what OS and runtimes are installed on the server"*
-> RemoteBridge calls `preflight_check` → returns Ubuntu version, Node, Python, Docker
-
-**You:** *"Tail the remote logs and show me what's failing"*
-> RemoteBridge calls `fetch_logs` → AI reads the error and fixes your code
-
-**You:** *"Something broke after deploy — fetch the logs and fix it"*
-> RemoteBridge fetches logs → AI sees the stack trace → writes the fix → deploys again
-
----
-
-The AI decides which tool to call. You just describe what you want.
-
----
-
-## 🔒 SSH Authentication & Security
-
-RemoteBridge uses your existing SSH key authentication — no passwords stored.
-
-### Setup
-
-1. **Copy your SSH key to the server:**
    ```bash
    ssh-copy-id -i ~/.ssh/id_rsa.pub ubuntu@your-server.com
    ```
 
-2. **Use a specific key or non-standard port in config:**
+2. Or specify key and port in config:
+
    ```yaml
    targets:
      staging:
@@ -430,42 +414,50 @@ RemoteBridge uses your existing SSH key authentication — no passwords stored.
        ssh_key: "~/keys/staging.pem"
    ```
 
-3. **Or use `~/.ssh/config` for aliases:**
-   ```
+3. Or use `~/.ssh/config` aliases:
+
+   ```text
    Host staging-server
        HostName 13.234.xx.xx
        User ubuntu
        IdentityFile ~/keys/my-key.pem
        Port 22
    ```
-   Then in `remotebridge.yaml`:
+
+   Then point `host` at the alias:
+
    ```yaml
-   host: "staging-server"
-   user: "ubuntu"
+   targets:
+     staging:
+       host: "staging-server"
+       user: "ubuntu"
    ```
 
----
+## Safety Model
 
-## 🛡 Safety Features
+RemoteBridge is designed for AI-driven execution, so safety is not optional.
 
-RemoteBridge has layered defenses so a hallucinating AI can never destroy your server.
+### Confirmation Gate
 
-### Confirmation Gate (built-in)
-Commands containing `sudo`, `rm`, `drop`, `delete`, `database`, `shutdown`, `reboot`, `killall`, `curl | bash`, `wget | sh`, and 20+ other dangerous patterns **always pause for confirmation** before running on the remote host.
+Commands containing risky patterns such as `sudo`, `rm`, `drop`, `delete`, `shutdown`, `reboot`, `killall`, `curl | bash`, and similar destructive sequences require confirmation before execution.
 
-### Hard Block (user-defined)
-Patterns you add to `blocked_patterns` are **always rejected — no confirmation, no override**:
+### Hard Block
+
+Anything in `blocked_patterns` is always rejected:
+
 ```yaml
 targets:
-  staging:
+  production:
     blocked_patterns:
       - "rm -rf"
       - "drop table"
       - "truncate"
 ```
 
-### Allowlist (user-defined)
-When `allowed_commands` is set, **only commands matching those prefixes can run**. Anything else is silently blocked:
+### Allowlist
+
+If `allowed_commands` is set, only matching prefixes are allowed:
+
 ```yaml
 targets:
   production:
@@ -476,33 +468,41 @@ targets:
 ```
 
 ### Audit Log
-Every command execution is logged automatically to `~/.remote-bridge-audit.log` (or a custom path):
-```
+
+Every command is logged automatically:
+
+```text
 [1742660591] host=your-server.com path=/var/www/app exit=0 cmd=npm install
 [1742660612] host=your-server.com path=/var/www/app exit=-2 cmd=rm -rf /var/data
 ```
-Exit codes: `0+` = actual exit code, `-1` = skipped by user, `-2` = hard blocked, `-3` = not in allowlist.
 
-Custom path:
-```yaml
-targets:
-  staging:
-    audit_log: "/var/log/remote-bridge-staging.log"
-```
+Exit codes:
+
+- `0+` actual process exit code
+- `-1` skipped by user
+- `-2` hard blocked
+- `-3` not allowlisted
 
 ### Other Protections
-- **`require_confirmation: true`** — confirm every command, no exceptions
-- **`--dry-run`** on sync — preview rsync diff without touching anything
-- **No password storage** — SSH key auth only
-- **No secrets in config** — host/user/path only
-- **MCP output truncation** — `run_remote_command` returns at most 100 lines by default, preventing log floods from filling AI context
 
----
+- `require_confirmation: true` can force confirmation on every command for sensitive targets.
+- `sync --dry-run` previews what will change before syncing.
+- No passwords are stored by RemoteBridge.
+- No secrets need to live in `remotebridge.yaml`.
+- MCP output stays bounded so one noisy command does not flood model context.
 
-## 🤝 Contributing
+## Honest Tradeoff
 
-Contributions, issues, and feature requests are welcome at [GitHub Issues](https://github.com/varaprasadreddy9676/remote-bridge/issues).
+If you want a raw terminal, use SSH.
 
-## 📜 License
+If you want an AI to reliably work with remote infrastructure without repeatedly wasting tokens on rediscovery, shell glue, and noisy output, use RemoteBridge.
+
+That is the value proposition.
+
+## Contributing
+
+Contributions and issues are welcome at [GitHub Issues](https://github.com/varaprasadreddy9676/remote-bridge/issues).
+
+## License
 
 MIT License.

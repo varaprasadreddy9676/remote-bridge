@@ -4,7 +4,7 @@ Deploy and manage remote servers directly from Codex using SSH and rsync.
 
 ## Description
 
-This skill enables Codex to sync files, run commands, tail logs, restart services, and run full deploy pipelines on remote servers — all via the remote-bridge MCP server.
+This skill enables Codex to sync files, run commands, tail logs, restart services, diagnose failures, compare environments, and run full deploy pipelines on remote servers — all via the remote-bridge MCP server.
 
 ## Prerequisites
 
@@ -61,6 +61,8 @@ Add to your Codex MCP config:
 | `fetch_logs` | Tail recent lines from configured log files |
 | `restart_service` | Restart the remote service via `restart_cmd` |
 | `deploy` | Full pipeline: sync → restart → tail logs on failure |
+| `diagnose_failure` | Collect a compact diagnosis bundle and summarize likely causes from service state and logs |
+| `compare_targets` | Compare two configured targets for config and runtime drift |
 
 ## Safety
 

@@ -14,7 +14,7 @@ tools:
   - name: sync_to_remote
     description: Syncs a local directory to the remote server via rsync over SSH. Supports local_path, dry_run, delete (opt-in, off by default), and confirm (required when target has require_confirmation=true).
   - name: run_remote_command
-    description: Executes a shell command on the remote server and returns stdout/stderr. Output truncated to max_lines (default 100).
+    description: Executes a shell command on the remote server and returns stdout/stderr. Combined output is truncated to max_lines (default 100).
   - name: preflight_check
     description: Checks the remote environment for OS version and available runtimes (Node, Python, Rust, Docker)
   - name: fetch_logs
@@ -23,6 +23,10 @@ tools:
     description: Restarts the remote service using restart_cmd defined in remotebridge.yaml
   - name: deploy
     description: Full deploy pipeline — sync files, restart service, tail logs on failure
+  - name: diagnose_failure
+    description: Collects a compact, config-aware diagnosis bundle for a target and summarizes likely causes
+  - name: compare_targets
+    description: Compares two configured targets for config drift, runtime drift, and compatibility risks
 
 installation:
   npm:

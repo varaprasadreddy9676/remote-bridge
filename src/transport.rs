@@ -9,13 +9,26 @@ pub struct Transport {
 }
 
 impl Transport {
+    const SSH_CONTROL_PATH: &'static str = "/tmp/remote-bridge-%C";
+
     pub fn new(target: TargetConfig) -> Self {
         Self { target }
     }
 
-    /// Returns extra SSH CLI args for port and identity file.
+    fn shell_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', r#"'\"'\"'"#))
+    }
+
+    /// Returns extra SSH CLI args for connection reuse, port, and identity file.
     fn ssh_extra_args(&self) -> Vec<String> {
-        let mut args = Vec::new();
+        let mut args = vec![
+            "-o".to_string(),
+            "ControlMaster=auto".to_string(),
+            "-o".to_string(),
+            "ControlPersist=60".to_string(),
+            "-o".to_string(),
+            format!("ControlPath={}", Self::SSH_CONTROL_PATH),
+        ];
         if let Some(port) = self.target.port {
             args.push("-p".to_string());
             args.push(port.to_string());
@@ -27,12 +40,19 @@ impl Transport {
         args
     }
 
-    /// Builds the rsync `-e` SSH transport string when port or key is set.
-    fn rsync_ssh_transport(&self) -> Option<String> {
-        if self.target.port.is_none() && self.target.ssh_key.is_none() {
-            return None;
-        }
-        let mut parts = vec!["ssh".to_string(), "-o".to_string(), "LogLevel=ERROR".to_string()];
+    /// Builds the rsync `-e` SSH transport string with the same connection reuse settings.
+    fn rsync_ssh_transport(&self) -> String {
+        let mut parts = vec![
+            "ssh".to_string(),
+            "-o".to_string(),
+            "LogLevel=ERROR".to_string(),
+            "-o".to_string(),
+            "ControlMaster=auto".to_string(),
+            "-o".to_string(),
+            "ControlPersist=60".to_string(),
+            "-o".to_string(),
+            format!("ControlPath={}", Self::SSH_CONTROL_PATH),
+        ];
         if let Some(port) = self.target.port {
             parts.push("-p".to_string());
             parts.push(port.to_string());
@@ -41,7 +61,7 @@ impl Transport {
             parts.push("-i".to_string());
             parts.push(key.clone());
         }
-        Some(parts.join(" "))
+        parts.join(" ")
     }
 
     /// Builds the rsync arg list for unit testing without shelling out.
@@ -62,10 +82,8 @@ impl Transport {
             args.push("--itemize-changes".to_string());
         }
 
-        if let Some(transport) = self.rsync_ssh_transport() {
-            args.push("-e".to_string());
-            args.push(transport);
-        }
+        args.push("-e".to_string());
+        args.push(self.rsync_ssh_transport());
 
         for exc in exclude {
             args.push("--exclude".to_string());
@@ -147,7 +165,7 @@ impl Transport {
         }
 
         let remote_target = format!("{}@{}", self.target.user, self.target.host);
-        let remote_cmd = format!("cd {} && {}", self.target.remote_path, command);
+        let remote_cmd = format!("cd {} && {}", Self::shell_quote(&self.target.remote_path), command);
 
         println!("Executing remote command: {}", command);
 
@@ -171,20 +189,32 @@ impl Transport {
             return Ok("No log files configured for this target.".to_string());
         }
 
-        let mut combined = String::new();
-        for log_path in &self.target.logs {
-            let cmd = format!("tail -n {} {}", lines, log_path);
-            let (exit_code, stdout, stderr) = self.run_remote_command(&cmd)?;
-            if exit_code == 0 {
-                combined.push_str(&format!("--- Log: {} ---\n{}\n", log_path, stdout));
-            } else {
-                combined.push_str(&format!(
-                    "--- Error fetching {}: {} ---\n",
-                    log_path, stderr
-                ));
-            }
+        let quoted_logs = self
+            .target
+            .logs
+            .iter()
+            .map(|path| Self::shell_quote(path))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let cmd = format!(
+            "for log in {quoted_logs}; do \
+                printf '%s\\n' \"--- Log: $log ---\"; \
+                if [ -r \"$log\" ]; then \
+                    tail -n {lines} \"$log\"; \
+                elif [ -e \"$log\" ]; then \
+                    printf '%s\\n' \"(exists but is not readable)\"; \
+                else \
+                    printf '%s\\n' \"(file not found)\"; \
+                fi; \
+                printf '\\n'; \
+            done"
+        );
+
+        let (exit_code, stdout, stderr) = self.run_remote_command(&cmd)?;
+        if exit_code != 0 {
+            return Err(format!("Failed to fetch remote logs: {}", stderr.trim()).into());
         }
-        Ok(combined)
+        Ok(stdout)
     }
 
     /// Streams remote log files to stdout.
@@ -200,11 +230,20 @@ impl Transport {
             return Err("ssh not found. Please install it.".into());
         }
 
-        let log_paths = self.target.logs.join(" ");
+        let log_paths = self
+            .target
+            .logs
+            .iter()
+            .map(|path| Self::shell_quote(path))
+            .collect::<Vec<_>>()
+            .join(" ");
         let tail_flag = if follow { "-f" } else { "" };
         let remote_cmd = format!(
             "cd {} && tail {} -n {} {}",
-            self.target.remote_path, tail_flag, lines, log_paths
+            Self::shell_quote(&self.target.remote_path),
+            tail_flag,
+            lines,
+            log_paths
         );
         let remote_target = format!("{}@{}", self.target.user, self.target.host);
 
@@ -230,6 +269,20 @@ impl Transport {
             return Err(format!("Remote tail exited with status: {:?}", status.code()).into());
         }
         Ok(())
+    }
+
+    pub fn preflight_check(&self) -> Result<String, Box<dyn std::error::Error>> {
+        let cmd = r#"os=$(lsb_release -d 2>/dev/null || grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"');
+printf 'OS: %s\n' "${os:-Unknown}";
+if command -v node >/dev/null 2>&1; then printf 'Node.js: %s\n' "$(node -v)"; else printf 'Node.js: Not found\n'; fi;
+if command -v python3 >/dev/null 2>&1; then printf 'Python: %s\n' "$(python3 --version 2>&1)"; else printf 'Python: Not found\n'; fi;
+if command -v rustc >/dev/null 2>&1; then printf 'Rust: %s\n' "$(rustc --version)"; else printf 'Rust: Not found\n'; fi;
+if command -v docker >/dev/null 2>&1; then printf 'Docker: %s\n' "$(docker --version)"; else printf 'Docker: Not found\n'; fi;"#;
+        let (exit_code, stdout, stderr) = self.run_remote_command(cmd)?;
+        if exit_code != 0 {
+            return Err(format!("Pre-flight check failed: {}", stderr.trim()).into());
+        }
+        Ok(stdout)
     }
 
     /// Returns the `user@host` string for display purposes.
@@ -265,26 +318,74 @@ mod tests {
     #[test]
     fn test_ssh_extra_args_none() {
         let t = make_transport(None, None);
-        assert!(t.ssh_extra_args().is_empty());
+        assert_eq!(
+            t.ssh_extra_args(),
+            vec![
+                "-o",
+                "ControlMaster=auto",
+                "-o",
+                "ControlPersist=60",
+                "-o",
+                "ControlPath=/tmp/remote-bridge-%C",
+            ]
+        );
     }
 
     #[test]
     fn test_ssh_extra_args_port_only() {
         let t = make_transport(Some(2222), None);
-        assert_eq!(t.ssh_extra_args(), vec!["-p", "2222"]);
+        assert_eq!(
+            t.ssh_extra_args(),
+            vec![
+                "-o",
+                "ControlMaster=auto",
+                "-o",
+                "ControlPersist=60",
+                "-o",
+                "ControlPath=/tmp/remote-bridge-%C",
+                "-p",
+                "2222",
+            ]
+        );
     }
 
     #[test]
     fn test_ssh_extra_args_key_only() {
         let t = make_transport(None, Some("~/.ssh/id_rsa".to_string()));
-        assert_eq!(t.ssh_extra_args(), vec!["-i", "~/.ssh/id_rsa"]);
+        assert_eq!(
+            t.ssh_extra_args(),
+            vec![
+                "-o",
+                "ControlMaster=auto",
+                "-o",
+                "ControlPersist=60",
+                "-o",
+                "ControlPath=/tmp/remote-bridge-%C",
+                "-i",
+                "~/.ssh/id_rsa",
+            ]
+        );
     }
 
     #[test]
     fn test_ssh_extra_args_port_and_key() {
         let t = make_transport(Some(2222), Some("~/.ssh/deploy.pem".to_string()));
         let args = t.ssh_extra_args();
-        assert_eq!(args, vec!["-p", "2222", "-i", "~/.ssh/deploy.pem"]);
+        assert_eq!(
+            args,
+            vec![
+                "-o",
+                "ControlMaster=auto",
+                "-o",
+                "ControlPersist=60",
+                "-o",
+                "ControlPath=/tmp/remote-bridge-%C",
+                "-p",
+                "2222",
+                "-i",
+                "~/.ssh/deploy.pem",
+            ]
+        );
     }
 
     // ── rsync_ssh_transport ───────────────────────────────────────────────────
@@ -292,27 +393,36 @@ mod tests {
     #[test]
     fn test_rsync_ssh_transport_none_when_defaults() {
         let t = make_transport(None, None);
-        assert!(t.rsync_ssh_transport().is_none());
+        assert_eq!(
+            t.rsync_ssh_transport(),
+            "ssh -o LogLevel=ERROR -o ControlMaster=auto -o ControlPersist=60 -o ControlPath=/tmp/remote-bridge-%C"
+        );
     }
 
     #[test]
     fn test_rsync_ssh_transport_with_port() {
         let t = make_transport(Some(2222), None);
-        assert_eq!(t.rsync_ssh_transport().unwrap(), "ssh -o LogLevel=ERROR -p 2222");
+        assert_eq!(
+            t.rsync_ssh_transport(),
+            "ssh -o LogLevel=ERROR -o ControlMaster=auto -o ControlPersist=60 -o ControlPath=/tmp/remote-bridge-%C -p 2222"
+        );
     }
 
     #[test]
     fn test_rsync_ssh_transport_with_key() {
         let t = make_transport(None, Some("/keys/prod.pem".to_string()));
-        assert_eq!(t.rsync_ssh_transport().unwrap(), "ssh -o LogLevel=ERROR -i /keys/prod.pem");
+        assert_eq!(
+            t.rsync_ssh_transport(),
+            "ssh -o LogLevel=ERROR -o ControlMaster=auto -o ControlPersist=60 -o ControlPath=/tmp/remote-bridge-%C -i /keys/prod.pem"
+        );
     }
 
     #[test]
     fn test_rsync_ssh_transport_with_both() {
         let t = make_transport(Some(22), Some("/keys/prod.pem".to_string()));
         assert_eq!(
-            t.rsync_ssh_transport().unwrap(),
-            "ssh -o LogLevel=ERROR -p 22 -i /keys/prod.pem"
+            t.rsync_ssh_transport(),
+            "ssh -o LogLevel=ERROR -o ControlMaster=auto -o ControlPersist=60 -o ControlPath=/tmp/remote-bridge-%C -p 22 -i /keys/prod.pem"
         );
     }
 
@@ -364,7 +474,10 @@ mod tests {
         let args = t.build_rsync_args(".", &[], false, false);
         assert!(args.contains(&"-e".to_string()));
         let e_pos = args.iter().position(|a| a == "-e").unwrap();
-        assert_eq!(args[e_pos + 1], "ssh -o LogLevel=ERROR -p 2222");
+        assert_eq!(
+            args[e_pos + 1],
+            "ssh -o LogLevel=ERROR -o ControlMaster=auto -o ControlPersist=60 -o ControlPath=/tmp/remote-bridge-%C -p 2222"
+        );
     }
 
     #[test]

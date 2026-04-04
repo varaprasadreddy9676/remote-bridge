@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 use crate::config::{find_config, load_config};
 use crate::executor::Executor;
+use crate::insights::{compare_targets, diagnose_failure};
 
 #[derive(Debug, Deserialize)]
 struct McpRequest {
@@ -94,7 +95,7 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                             },
                             {
                                 "name": "run_remote_command",
-                                "description": "Executes a shell command on the remote server and returns stdout/stderr. Output is truncated to max_lines (default 100) to avoid filling context.",
+                                "description": "Executes a shell command on the remote server and returns stdout/stderr. Combined output is truncated to max_lines (default 100) to avoid filling context.",
                                 "inputSchema": {
                                     "type": "object",
                                     "properties": {
@@ -169,6 +170,41 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                                         }
                                     }
                                 }
+                            },
+                            {
+                                "name": "diagnose_failure",
+                                "description": "Collects a compact, config-aware failure diagnosis bundle for a target: runtime facts, service-manager status, listeners, disk, memory, and recent logs, then summarizes likely causes.",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "target": {
+                                            "type": "string",
+                                            "description": "Target name from remotebridge.yaml (default: staging)"
+                                        },
+                                        "lines": {
+                                            "type": "integer",
+                                            "description": "Recent lines to inspect from each configured log file (default: 40, clamped 10-200)"
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "name": "compare_targets",
+                                "description": "Compares two configured targets using both local config and remote runtime facts, highlighting drift and compatibility risks.",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "left": {
+                                            "type": "string",
+                                            "description": "First target name from remotebridge.yaml"
+                                        },
+                                        "right": {
+                                            "type": "string",
+                                            "description": "Second target name from remotebridge.yaml"
+                                        }
+                                    },
+                                    "required": ["left", "right"]
+                                }
                             }
                         ]
                     }
@@ -206,6 +242,19 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         "restart_service" => handle_restart(target),
                         "deploy" => handle_deploy(target),
+                        "diagnose_failure" => {
+                            let lines = tool_args["lines"].as_u64().unwrap_or(40) as usize;
+                            handle_diagnose(target, lines)
+                        }
+                        "compare_targets" => {
+                            let left = tool_args["left"].as_str().unwrap_or("");
+                            let right = tool_args["right"].as_str().unwrap_or("");
+                            if left.is_empty() || right.is_empty() {
+                                Err("Missing required arguments: left and right".into())
+                            } else {
+                                handle_compare(left, right)
+                            }
+                        }
                         _ => Err(format!("Unknown tool: {}", tool_name).into()),
                     };
 
@@ -287,56 +336,100 @@ fn handle_deploy(target: &str) -> Result<String, Box<dyn std::error::Error>> {
     Ok("Deploy complete.".to_string())
 }
 
+fn truncate_to_last_lines(text: &str, keep_lines: usize) -> String {
+    if keep_lines == 0 || text.trim().is_empty() {
+        return String::new();
+    }
+
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= keep_lines {
+        return text.to_string();
+    }
+
+    let kept = &lines[lines.len() - keep_lines..];
+    format!(
+        "[...truncated, showing last {} of {} lines]\n{}",
+        keep_lines,
+        lines.len(),
+        kept.join("\n")
+    )
+}
+
+fn allocate_output_budget(stdout: &str, stderr: &str, max_lines: usize, exit_code: i32) -> (usize, usize) {
+    let stdout_lines = stdout.lines().count();
+    let stderr_lines = stderr.lines().count();
+    let total_lines = stdout_lines + stderr_lines;
+
+    if max_lines == 0 || total_lines <= max_lines {
+        return (stdout_lines, stderr_lines);
+    }
+
+    if stdout_lines == 0 {
+        return (0, max_lines.min(stderr_lines));
+    }
+
+    if stderr_lines == 0 {
+        return (max_lines.min(stdout_lines), 0);
+    }
+
+    let stderr_reserved = if exit_code == 0 {
+        stderr_lines.min(10).min(max_lines)
+    } else {
+        (max_lines * 2 / 3).max(1).min(stderr_lines)
+    };
+    let stdout_reserved = max_lines.saturating_sub(stderr_reserved).min(stdout_lines);
+
+    let mut stdout_budget = stdout_reserved;
+    let mut stderr_budget = stderr_reserved;
+    let mut remaining = max_lines.saturating_sub(stdout_budget + stderr_budget);
+
+    while remaining > 0 {
+        let stdout_missing = stdout_lines.saturating_sub(stdout_budget);
+        let stderr_missing = stderr_lines.saturating_sub(stderr_budget);
+
+        if exit_code != 0 && stderr_missing > 0 {
+            stderr_budget += 1;
+        } else if stdout_missing > 0 {
+            stdout_budget += 1;
+        } else if stderr_missing > 0 {
+            stderr_budget += 1;
+        } else {
+            break;
+        }
+        remaining -= 1;
+    }
+
+    (stdout_budget, stderr_budget)
+}
+
+fn format_command_output(exit_code: i32, stdout: &str, stderr: &str, max_lines: usize) -> String {
+    let (stdout_budget, stderr_budget) = allocate_output_budget(stdout, stderr, max_lines, exit_code);
+    let stdout_trimmed = truncate_to_last_lines(stdout, stdout_budget);
+    let stderr_trimmed = truncate_to_last_lines(stderr, stderr_budget);
+
+    let mut sections = vec![format!("Exit Code: {}", exit_code)];
+    if !stdout_trimmed.trim().is_empty() {
+        sections.push(format!("STDOUT:\n{}", stdout_trimmed));
+    }
+    if !stderr_trimmed.trim().is_empty() {
+        sections.push(format!("STDERR:\n{}", stderr_trimmed));
+    }
+    sections.join("\n")
+}
+
 fn handle_run(target: &str, command: &str, max_lines: usize) -> Result<String, Box<dyn std::error::Error>> {
     let config = load_config(find_config()?)?;
     let target_cfg = config.targets.get(target).ok_or(format!("Target {} not found", target))?;
     let executor = Executor::new(target_cfg.clone());
     let (code, stdout, stderr) = executor.get_transport().run_remote_command(command)?;
-
-    let stdout_trimmed = if max_lines > 0 {
-        let lines: Vec<&str> = stdout.lines().collect();
-        let total = lines.len();
-        if total > max_lines {
-            let kept = &lines[total - max_lines..];
-            format!("[...truncated, showing last {} of {} lines]\n{}", max_lines, total, kept.join("\n"))
-        } else {
-            stdout.clone()
-        }
-    } else {
-        stdout.clone()
-    };
-
-    Ok(format!("Exit Code: {}\nSTDOUT: {}\nSTDERR: {}", code, stdout_trimmed, stderr))
+    Ok(format_command_output(code, &stdout, &stderr, max_lines))
 }
 
 fn handle_preflight(target: &str) -> Result<String, Box<dyn std::error::Error>> {
     let config = load_config(find_config()?)?;
     let target_cfg = config.targets.get(target).ok_or(format!("Target {} not found", target))?;
     let executor = Executor::new(target_cfg.clone());
-    let transport = executor.get_transport();
-
-    let mut output = String::new();
-
-    let (_, os, _) = transport.run_remote_command(
-        "lsb_release -d 2>/dev/null || grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '\"'",
-    )?;
-    output.push_str(&format!("OS: {}\n", os.trim()));
-
-    let (code, node, _) = transport.run_remote_command("node -v")?;
-    if code == 0 {
-        output.push_str(&format!("Node.js: {}\n", node.trim()));
-    } else {
-        output.push_str("Node.js: Not found\n");
-    }
-
-    let (code, python, _) = transport.run_remote_command("python3 --version")?;
-    if code == 0 {
-        output.push_str(&format!("Python: {}\n", python.trim()));
-    } else {
-        output.push_str("Python: Not found\n");
-    }
-
-    Ok(output)
+    executor.get_transport().preflight_check()
 }
 
 fn handle_fetch_logs(target: &str, lines: usize) -> Result<String, Box<dyn std::error::Error>> {
@@ -344,6 +437,20 @@ fn handle_fetch_logs(target: &str, lines: usize) -> Result<String, Box<dyn std::
     let target_cfg = config.targets.get(target).ok_or(format!("Target {} not found", target))?;
     let executor = Executor::new(target_cfg.clone());
     executor.get_transport().fetch_logs(lines)
+}
+
+fn handle_diagnose(target: &str, lines: usize) -> Result<String, Box<dyn std::error::Error>> {
+    let config = load_config(find_config()?)?;
+    let target_cfg = config.targets.get(target).ok_or(format!("Target {} not found", target))?;
+    let executor = Executor::new(target_cfg.clone());
+    diagnose_failure(target, target_cfg, executor.get_transport(), lines)
+}
+
+fn handle_compare(left: &str, right: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let config = load_config(find_config()?)?;
+    let left_cfg = config.targets.get(left).ok_or(format!("Target {} not found", left))?;
+    let right_cfg = config.targets.get(right).ok_or(format!("Target {} not found", right))?;
+    compare_targets(left, left_cfg, right, right_cfg)
 }
 
 // ── MCP protocol helpers exposed for testing ─────────────────────────────────
@@ -374,7 +481,9 @@ pub fn build_tools_list_response(id: Option<Value>) -> Value {
                 { "name": "preflight_check" },
                 { "name": "fetch_logs" },
                 { "name": "restart_service" },
-                { "name": "deploy" }
+                { "name": "deploy" },
+                { "name": "diagnose_failure" },
+                { "name": "compare_targets" }
             ]
         }
     })
@@ -418,6 +527,8 @@ mod tests {
         assert!(names.contains(&"fetch_logs"));
         assert!(names.contains(&"restart_service"));
         assert!(names.contains(&"deploy"));
+        assert!(names.contains(&"diagnose_failure"));
+        assert!(names.contains(&"compare_targets"));
     }
 
     #[test]

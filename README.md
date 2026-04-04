@@ -1,95 +1,91 @@
 # RemoteBridge 🌉
 
-**A safe, configurable MCP layer for letting AI tools work with remote servers without turning every task into ad hoc SSH.**
+**A safe, configurable MCP tool for giving AI agents reliable access to remote servers.**
 
 RemoteBridge is a Rust CLI and MCP server for AI-assisted remote workflows. It syncs local code with `rsync`, runs remote commands over SSH, gathers logs and diagnostics, compares environments, and exposes all of that through a compact tool surface your AI can use directly.
 
-Many AI agent CLIs and IDEs can already connect to remote servers now. That is not the problem.
+Use it when you want an AI agent in Claude Code, Cursor, Windsurf, Codex, or another MCP-enabled tool to work against a remote machine with real operational context, not just a shell prompt.
 
-The problem is that direct remote access usually gives the model a shell, but not an operational interface. The AI still has to rediscover paths, restart commands, log files, safety rules, and output limits every time. RemoteBridge exists to make that layer explicit, reusable, and safer.
+Instead of making the model guess how your server is set up, RemoteBridge gives it a configured operational interface.
 
-## Built For The World We Already Live In
+## What RemoteBridge Helps The AI Understand
 
-Today you can often do some version of this directly from an AI tool:
+When an AI is debugging or deploying on a remote machine, it needs more than "run this command".
 
-```bash
-ssh user@host "cd /var/www/app && npm install && pm2 restart app"
-```
+It needs to understand things like:
 
-That capability is useful. RemoteBridge is built for the cases where that is not enough.
+- where the app is deployed
+- how the service is restarted
+- which log files matter
+- what runtimes are installed
+- whether the service is healthy
+- which ports are listening
+- whether disk or memory pressure is involved
+- how staging differs from production
+- which commands are allowed or dangerous
 
-What direct remote access usually does not give you:
+RemoteBridge stores those recurring server facts in `remotebridge.yaml` and exposes the useful workflows as MCP tools.
 
-- a configured source of truth for deploy paths, restart commands, and logs
-- a safe execution policy for destructive or risky commands
-- a compact, token-aware response format
-- semantic operations like "diagnose this failure" or "compare staging and production"
-- a clean local-to-remote workflow for uncommitted code
-
-RemoteBridge turns those missing pieces into first-class MCP tools.
+That lets the AI work with a remote server as a system it can understand, not just a place where commands happen to run.
 
 ## What Problem This Actually Solves
 
-If you let an AI talk to a server through raw `ssh`, it can usually get the job done. But it has to rediscover the same facts over and over:
+Without a structured tool layer, remote work from AI usually turns into a noisy sequence of shell steps:
 
-- Which host should I use?
-- What directory is the app deployed in?
-- How do I restart this service?
-- Where are the logs?
-- Which commands are safe here?
-- How much output can I afford to send back without blowing context?
+- find the right host
+- find the deploy path
+- inspect the runtime
+- find the restart command
+- find the logs
+- tail too much output
+- ask more questions to recover context
 
-That repeated discovery is where time, tokens, and mistakes accumulate.
+RemoteBridge compresses that into a smaller set of reusable operations with clearer intent and better defaults.
 
-RemoteBridge moves those recurring facts and workflows into tools. Instead of:
-
-```bash
-ssh user@host "cd /var/www/app && npm install && pm2 restart app && tail -n 100 /var/www/app/logs/error.log"
-```
-
-your AI can call:
+Your AI can call:
 
 - `sync_to_remote`
 - `deploy`
+- `preflight_check`
 - `fetch_logs`
 - `diagnose_failure`
 - `compare_targets`
 
-That is the difference between:
+These tools are designed to help the AI inspect and reason about the remote system, not just execute commands on it.
 
-- AI with shell access
-- AI with a configurable operational interface
+For example, `diagnose_failure` can gather:
 
-## Why Not Just Use Direct SSH From The AI
+- runtime facts
+- service-manager state
+- recent logs
+- listeners
+- disk status
+- memory state
+- likely failure signatures
 
-Use direct SSH when:
+in one compact response.
+
+## Small Note On Direct SSH
+
+Direct SSH from an AI tool is still useful when:
 
 - You want a fully interactive shell.
 - You already know the exact command.
-- You need ad hoc exploration and do not care about token cost.
+- You want one-off ad hoc exploration.
 - You are doing a one-off urgent command and want raw terminal behavior.
 
-Use RemoteBridge when:
+RemoteBridge is better when:
 
 - The AI is driving the workflow.
 - The same server facts keep getting rediscovered.
-- You want deploy/restart/log/debug flows to be repeatable.
+- You want deploy, restart, diagnosis, and log workflows to be repeatable.
 - You need guardrails around destructive commands.
 - You want compact answers instead of full shell transcripts.
-- You want config-aware operations like "compare staging and production" instead of open-ended shell probing.
-
-Direct SSH can absolutely be faster for one command. RemoteBridge is usually better for the repeated AI workflow around that command.
-
-The practical difference is this:
-
-- direct SSH gives the model maximum freedom
-- RemoteBridge gives the model fewer things to guess
-
-For AI systems, fewer guesses usually means fewer mistakes and fewer tokens.
+- You want config-aware operations like "compare staging and production".
 
 ## How RemoteBridge Is Practically Different
 
-RemoteBridge is not better because it hides SSH. It is better when it turns repeated infrastructure reasoning into stable tool behavior.
+RemoteBridge is not better because it hides SSH. It is better because it turns repeated infrastructure reasoning into stable, reusable tool behavior.
 
 Concrete differences from direct SSH:
 

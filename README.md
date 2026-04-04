@@ -1,10 +1,32 @@
 # RemoteBridge 🌉
 
-**Turn remote-server work into safe, token-efficient MCP tools instead of making your AI improvise SSH every time.**
+**A safe, configurable MCP layer for letting AI tools work with remote servers without turning every task into ad hoc SSH.**
 
-RemoteBridge is a Rust CLI and MCP server for AI-assisted remote workflows. It syncs local code with `rsync`, runs remote commands over SSH, gathers logs and diagnostics, compares environments, and wraps all of that in a config-aware tool surface your AI can use directly.
+RemoteBridge is a Rust CLI and MCP server for AI-assisted remote workflows. It syncs local code with `rsync`, runs remote commands over SSH, gathers logs and diagnostics, compares environments, and exposes all of that through a compact tool surface your AI can use directly.
 
-It does not replace SSH as a protocol. It makes SSH more useful for AI agents.
+Many AI agent CLIs and IDEs can already connect to remote servers now. That is not the problem.
+
+The problem is that direct remote access usually gives the model a shell, but not an operational interface. The AI still has to rediscover paths, restart commands, log files, safety rules, and output limits every time. RemoteBridge exists to make that layer explicit, reusable, and safer.
+
+## Built For The World We Already Live In
+
+Today you can often do some version of this directly from an AI tool:
+
+```bash
+ssh user@host "cd /var/www/app && npm install && pm2 restart app"
+```
+
+That capability is useful. RemoteBridge is built for the cases where that is not enough.
+
+What direct remote access usually does not give you:
+
+- a configured source of truth for deploy paths, restart commands, and logs
+- a safe execution policy for destructive or risky commands
+- a compact, token-aware response format
+- semantic operations like "diagnose this failure" or "compare staging and production"
+- a clean local-to-remote workflow for uncommitted code
+
+RemoteBridge turns those missing pieces into first-class MCP tools.
 
 ## What Problem This Actually Solves
 
@@ -33,9 +55,12 @@ your AI can call:
 - `diagnose_failure`
 - `compare_targets`
 
-That is the difference between "AI with shell access" and "AI with an operational interface."
+That is the difference between:
 
-## Direct SSH vs RemoteBridge MCP
+- AI with shell access
+- AI with a configurable operational interface
+
+## Why Not Just Use Direct SSH From The AI
 
 Use direct SSH when:
 
@@ -53,7 +78,30 @@ Use RemoteBridge when:
 - You want compact answers instead of full shell transcripts.
 - You want config-aware operations like "compare staging and production" instead of open-ended shell probing.
 
-Direct SSH can be faster for one command. RemoteBridge is usually better for the full AI loop.
+Direct SSH can absolutely be faster for one command. RemoteBridge is usually better for the repeated AI workflow around that command.
+
+The practical difference is this:
+
+- direct SSH gives the model maximum freedom
+- RemoteBridge gives the model fewer things to guess
+
+For AI systems, fewer guesses usually means fewer mistakes and fewer tokens.
+
+## How RemoteBridge Is Practically Different
+
+RemoteBridge is not better because it hides SSH. It is better when it turns repeated infrastructure reasoning into stable tool behavior.
+
+Concrete differences from direct SSH:
+
+- The server path is configured once in `remotebridge.yaml` and reused on every call.
+- The restart command is configured once instead of being rediscovered or retyped.
+- The log files are configured once instead of the model hunting for them.
+- The model can call `deploy`, `diagnose_failure`, and `compare_targets` as intent-level operations.
+- The output is deliberately bounded so the model receives signal instead of log floods.
+- Dangerous commands can be confirmed, blocked, or allowlisted.
+- Local code changes and remote execution are part of one workflow instead of two disconnected steps.
+
+This is why RemoteBridge is usually more useful than raw shell access inside an AI agent, even when the AI agent technically supports remote access already.
 
 ## Why This Saves Tokens In Practice
 
@@ -69,7 +117,11 @@ It saves tokens in a few concrete ways:
 - `deploy` and `restart_service` remove the need for the AI to restate shell glue like `cd /path && ...` every time.
 - Config values such as `remote_path`, `restart_cmd`, `logs`, `allowed_commands`, and `blocked_patterns` are stored once and reused on every call.
 
-The important point is not just "fewer SSH commands." It is "less repeated reasoning around the same infrastructure facts."
+The important point is not just "fewer SSH commands." It is:
+
+- less repeated reasoning around the same infrastructure facts
+- less output the model has to read
+- fewer follow-up prompts caused by noisy shell transcripts
 
 ## Why This Is Better Than Letting AI Freestyle Shell
 
@@ -97,6 +149,27 @@ It is trying to give AI agents a better abstraction than:
 4. guess the logs
 5. dump too much output
 6. try again
+
+## Why We Built This In Rust
+
+RemoteBridge could have been written in Node.js or Python. We chose Rust for practical reasons tied to the job this tool does.
+
+Rust helps here because:
+
+- it produces a single native binary with fast startup, which is useful for CLI and stdio MCP usage
+- it avoids requiring users to manage a Python runtime or a larger JS runtime stack at execution time
+- it is a good fit for process-heavy, I/O-heavy tooling such as `ssh`, `rsync`, log streaming, and MCP stdio handling
+- it gives strong compile-time guarantees around error handling and data flow, which matters for deployment and remote execution tooling
+- it tends to have predictable performance and low overhead for repeated tool calls
+
+For this project specifically, that means:
+
+- faster startup for MCP clients launching the server
+- less packaging friction for a CLI that people want to install and use immediately
+- a native binary that is well suited to wrapping system tools like `ssh` and `rsync`
+- a smaller risk surface for runtime dependency issues compared with large script-runtime stacks
+
+Node.js or Python would have been workable. Rust is a better fit for a tool whose job is to be a reliable systems bridge between an AI client and remote infrastructure.
 
 ## Features
 
